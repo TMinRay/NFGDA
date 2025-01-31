@@ -1,0 +1,16 @@
+main/*mat
+main/*.swp
+main/*.m~
+mat/
+main/movingavg/
+main/check_png/
+main/*.dat
+main/*.png
+main/*.fis
+main/MIGFA/*.m~
+MIGFAdat/
+V06
+netcdf
+NFFIG
+IMG/*mat
+ieee2016
