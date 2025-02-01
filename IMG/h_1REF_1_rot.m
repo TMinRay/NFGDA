@@ -17,12 +17,8 @@ for m=startm:endm
     rotitp=[]; 
     for i=1:rotnum
         indi=rotdegree*(i-1);
-        if i==1
-        roted(:,1:720,i)=orirot(:,1:720);
-        else
-        roted(:,1:720-degshit*(i-1),i)=orirot(:,degshit*(i-1)+1:720);
-        roted(:,720-degshit*(i-1)+1:720,i)=orirot(:,1:degshit*(i-1));
-        end
+        roted(:,1:720-indi,i)=orirot(:,indi+1:720);
+        roted(:,720-indi+1:720,i)=orirot(:,1:indi);
         rotitp(:,:,i) = griddata(x,y,roted(:,:,i),xi2,yi2);
         clear roted;  
     end
@@ -30,3 +26,4 @@ for m=startm:endm
     clear rotitp;
 end
 end
+
