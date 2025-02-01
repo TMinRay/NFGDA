@@ -33,14 +33,14 @@ if kkk==0
 end
 
 ssscore=zeros(size(sbox));
-ssscore(sbox<=snum1) = synum1;
+ssscore(sbox<snum1) = synum1;
 if max(sbox>=snum1 & sbox<=snum2)
     ssscore(sbox>=snum1 & sbox<=snum2) = ...
         gaussmf(sbox(sbox>=snum1 & sbox<=snum2),[5 snum1])...
          *(synum1+1)-1;
 end
-if max(sbox>=snum2)
-    ssscore(sbox>=snum2)=gaussmf(sbox(sbox>=snum2),[5 snum2])...
+if max(sbox>snum2)
+    ssscore(sbox>snum2)=gaussmf(sbox(sbox>snum2),[5 snum2])...
          *(synum1+2)-3;
 end
 % ssscore=zeros(size(sbox));
@@ -65,5 +65,5 @@ end
 %  end
  
 if kkk==0   
-    sdscore(ii,jj)=(sum(ssscore,"omitmissing"));
+    sdscore(ii,jj)=sum(ssscore,"omitmissing");
 end

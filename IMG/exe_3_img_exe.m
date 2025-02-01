@@ -1,5 +1,7 @@
+tic
 h_1REF_1_rot
 h_1REF_2_p_recog
+toc
 h_1REF_3_rotback
 h_1REF_4_final
 

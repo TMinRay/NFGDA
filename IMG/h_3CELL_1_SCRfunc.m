@@ -41,7 +41,7 @@ llscore=zeros(size(cbox));
 llscore(cbox<=s2xnum(1))=s2ynum(1);
 pp = cbox>=s2xnum(1) & cbox<s2xnum(2);
 llscore(pp)=s2g(2)*cbox(pp)+s2gc(2);
-llscore(cbox(pp)>=s2xnum(2))=s2ynum(2);
+llscore(cbox>=s2xnum(2))=s2ynum(2);
 
  %  for pp=1:indexcnum
  %     if cbox(pp)<=s2xnum(1)

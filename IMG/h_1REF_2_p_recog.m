@@ -48,6 +48,7 @@ for cindex=1:numel(ttable(:,1));
                         row_indices = ii + datasy; 
                         col_indices = jj + datasx;
                         lin_indices = sub2ind(size(a2), row_indices, col_indices);
+                        sbox=a2(lin_indices);
                         % for kind=1:indexcnum
                         %     cadd=[a2(ii+datacy(kind),jj+datacx(kind))];
                         %     cbox=[cbox; cadd;];
