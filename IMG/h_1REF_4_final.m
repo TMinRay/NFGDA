@@ -10,11 +10,12 @@ for cindex=1:numel(ttable(:,1));
         moriSCRout=[matPATH '/IMG/Z/oriz' PUTDAT num2str(m,'%02i') '.mat'];    
         load(moriSCRout, 'originscore');
         mLINEout=[matPATH '/LINE/Z/linez' PUTDAT num2str(m,'%02i') '.mat'];    
-        for ii=1:401
-            for jj=1:401
-                a(ii,jj)=max(originscore(ii,jj,:));
-            end
-        end
+        linez=max(originscore,[],3);
+        % for ii=1:401
+        %     for jj=1:401
+        %         a(ii,jj)=max(originscore(ii,jj,:));
+        %     end
+        % end
         linez=a;
         save(mLINEout, 'linez');
         clear originscore 
