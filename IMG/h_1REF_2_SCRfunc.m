@@ -5,11 +5,11 @@ snum1=0;
 snum2=5;
 synum1=1;
 llscore=zeros(size(cbox));
-if max(cbox<=cnum1)
+if max(cbox<=cnum1,[],'all')
     llscore(cbox<=cnum1) = gaussmf(cbox(cbox<=cnum1),[3 cnum1])*(2*ynum1-1)-1;
 end
 llscore(cbox>cnum1 & cbox<=cnum2) = ynum1+1;
-if max(cbox>cnum2)
+if max(cbox>cnum2,[],'all')
     llscore(cbox>cnum2) = gaussmf(cbox(cbox>cnum2),[12 cnum2])...
      *(2*ynum1)-(ynum1);
 end
@@ -29,17 +29,17 @@ end
 % end
 
 if kkk==0       
-    clscore(ii,jj)=sum(llscore,"omitmissing");
+    clscore=sum(llscore,1,"omitmissing");
 end
 
 ssscore=zeros(size(sbox));
 ssscore(sbox<snum1) = synum1;
-if max(sbox>=snum1 & sbox<=snum2)
+if max(sbox>=snum1 & sbox<=snum2,[],'all')
     ssscore(sbox>=snum1 & sbox<=snum2) = ...
         gaussmf(sbox(sbox>=snum1 & sbox<=snum2),[5 snum1])...
          *(synum1+1)-1;
 end
-if max(sbox>snum2)
+if max(sbox>snum2,[],'all')
     ssscore(sbox>snum2)=gaussmf(sbox(sbox>snum2),[5 snum2])...
          *(synum1+2)-3;
 end
@@ -65,5 +65,5 @@ end
 %  end
  
 if kkk==0   
-    sdscore(ii,jj)=sum(ssscore,"omitmissing");
+    sdscore=sum(ssscore,1,"omitmissing");
 end
