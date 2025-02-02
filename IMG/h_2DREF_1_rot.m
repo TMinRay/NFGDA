@@ -7,7 +7,7 @@ for cindex=1:numel(ttable(:,1));
      endm=endt(cindex);
   
 for m=startm:endm
-    t=m;
+    % t=m;
     
     dout=[matPATH '/DELZ/delz' PUTDAT num2str(m,'%02i') '.mat'];
     load(dout,'dif2');
@@ -16,18 +16,13 @@ for m=startm:endm
     mDROTout=[matPATH '/IMG/DELZ/rotdelZ' PUTDAT num2str(m,'%02i') '.mat'];
     roted=[]; 
     rotitp=[]; 
-    
     for i=1:rotnum
-        indi=rotdegree*(i-1);
-        if i==1
-        roted(:,1:720,i)=orirot(:,1:720);
-        else
-        roted(:,1:720-degshit*(i-1),i)=orirot(:,degshit*(i-1)+1:720);
-        roted(:,720-degshit*(i-1)+1:720,i)=orirot(:,1:degshit*(i-1));
-        end
+        indi=rotdegree*(i-1)/angint;
+        roted(:,1:720-indi,i)=orirot(:,indi+1:720);
+        roted(:,720-indi+1:720,i)=orirot(:,1:indi);
         rotitp(:,:,i) = griddata(x,y,roted(:,:,i),xi2,yi2);
         clear roted;  
-     end
+    end
      save(mDROTout, 'rotitp');
      clear rotitp;
 end
