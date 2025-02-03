@@ -13,13 +13,12 @@ for m=startm:endm
     orirot=double(PARROT(:,:,1));
     degshit=rotdegree/angint;
     mROTout=[matPATH '/IMG/Z/rotz' PUTDAT num2str(m,'%02i') '.mat'];
-    roted=[]; 
     rotitp=[]; 
     for i=1:rotnum
         indi=rotdegree*(i-1)/angint;
-        roted(:,1:720-indi,i)=orirot(:,indi+1:720);
-        roted(:,720-indi+1:720,i)=orirot(:,1:indi);
-        rotitp(:,:,i) = griddata(x,y,roted(:,:,i),xi2,yi2);
+        roted(:,1:720-indi)=orirot(:,indi+1:720);
+        roted(:,720-indi+1:720)=orirot(:,1:indi);
+        rotitp(:,:,i) = griddata(x,y,roted,xi2,yi2);
         clear roted;  
     end
     save(mROTout, 'rotitp');
