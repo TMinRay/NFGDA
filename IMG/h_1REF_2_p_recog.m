@@ -80,8 +80,13 @@ for cindex=1:numel(ttable(:,1));
         totscore=zeros(401,401,rotnum); 
         for i=1:rotnum
             a2=rotitp(:,:,i);
-            totscore(:,:,i)=gen_tot_score(a2,[15,20,2,0,5,1],thrREF);
+            totscore(:,:,i)=gen_tot_score(a2, ...
+                [15, 20, 3, 3, -1, 12, 4, -2, 3], ...
+                [0, 5, 5, 2,-1, 5, 3,-3, 1], ...
+                thrREF,10,(3*17+1*18),1);
         end
         save(mSCRout, 'totscore');
     end
 end
+
+

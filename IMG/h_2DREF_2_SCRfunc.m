@@ -11,7 +11,7 @@ llscore=zeros(size(cbox));
 if max(cbox<=cnum1)
     llscore(cbox<=cnum1) = gaussmf(cbox(cbox<=cnum1),[4 cnum1])*(2*ynum1-1)-ynum1;
 end
-llscore(cbox>cnum1 & cbox<=cnum2) = ynum1+1;
+llscore(cbox>cnum1 & cbox<=cnum2) = ynum1;
 if max(cbox>cnum2)
     llscore(cbox>cnum2) = gaussmf(cbox(cbox>cnum2),[9 cnum2])...
          *(2*ynum1+1-1)-(ynum1)-1;

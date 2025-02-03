@@ -6,7 +6,9 @@ h_1REF_3_rotback
 h_1REF_4_final
 
 h_2DREF_1_rot
+tic
 h_2DREF_2_p_recog
+toc
 h_2DREF_3_rotback
 h_2DREF_4_final
 
