@@ -139,9 +139,9 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="")
-    parser.add_argument('-v06_folder', type=str, default="../V06", help='folder containing V06 files')
+    parser.add_argument('-v06_folder', type=str, default="../../V06", help='folder containing V06 files')
     parser.add_argument('-case_id', type=str, help='V06 case folder')
-    parser.add_argument('-mat_folder', type=str, default="../mat", help='output folder for mat files')
+    parser.add_argument('-mat_folder', type=str, default="../../mat", help='output folder for mat files')
     parser.add_argument('-i_start', type=int, default=0, help='0-based index of first V06 file')
     parser.add_argument('-i_end', type=int, default=0, help='0-based index of last V06 file')
     args = parser.parse_args()
