@@ -1,6 +1,7 @@
 NF00_header;
 
-dtdout=['../NFFIG/'];
+fig_dir=['./ieee2016/out/'];
+export_preds_dir = ['./tracking_points/nf_preds'];
 
 % indcirc=zeros(401,401);
 % for i=1:401
@@ -21,6 +22,17 @@ for cindex=1:numel(ttable(:,1));
         
         
     PUTDAT=ttable(cindex,:);
+
+    dtdout = fullfile(fig_dir, PUTDAT);    
+    if not(isfolder(dtdout))
+        mkdir(dtdout);
+    end
+
+    exp_preds_event = fullfile(export_preds_dir,PUTDAT);
+    if not(isfolder(exp_preds_event))
+        mkdir(exp_preds_event);
+    end
+
     startm=startt(cindex)+1;
     endm=endt(cindex);    
 %     for m=startm:startm
@@ -56,6 +68,9 @@ for cindex=1:numel(ttable(:,1));
 %     load(mindxyall,'farray');   
     nfout=skel_nfout2;
     clear skel_nfout;
+
+    matout = [exp_preds_event '\' num2str(m,'%02i') '.mat']; 
+    save(matout,"xi2","yi2","REF","nfout","evalbox");
     
 %         mindxy2=['../mat/OUT/MIGFAfinal' PUTDAT num2str(m,'%02i') '.mat'];
 %         if exist(mindxy2)>0
@@ -174,7 +189,7 @@ for cindex=1:numel(ttable(:,1));
     set(gcf,'color','w');
     set(gcf, 'PaperPositionMode','auto');
     set(gcf,'render','painter')
-    plotout=[ '../ieee2016/out/mf_' num2str(cindex) '_t_' num2str(m,'%02i') '.png'];       
+    plotout=[ dtdout '\' 'mf_' num2str(cindex) '_t_' num2str(m,'%02i') '.png'];       
     
     frame = getframe(figure(m));
     im = frame2im(frame);

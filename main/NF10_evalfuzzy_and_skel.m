@@ -31,7 +31,7 @@ for cindex=1:numel(ttable(:,1));
         % % % % % % numthr below determines Y/N so the number should be
         % based on statistical results!!!!!
         hGST(hGST<=0)=nan;
-         numthr=0.7;
+         numthr=0.24;
          
         for iii=1:401
             for jjj=1:401

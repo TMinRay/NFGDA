@@ -21,7 +21,8 @@ Gate2=100*4;
 oriPATH=['../necdf'];
 matPATH=['../mat'];
 
-ttable=char( 'KABR20140621_21');
+% ttable=char( 'KABR20140621_21');
+ttable=char( 'KGGW20210722_23');
          
          
          
