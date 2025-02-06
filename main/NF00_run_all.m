@@ -31,8 +31,9 @@ NF08_making_training_dataset
 % % + obtaining trainingdataset
 % % -- defined in NF00_header
 % % use command "anfisedit" to train NFsystem
+tic
 NF10_evalfuzzy_and_skel
-
+toc
 % % 1. obtain fuzzy output
 % % 2. 3 by 3 window filtering
 % % 3. skeleton thining

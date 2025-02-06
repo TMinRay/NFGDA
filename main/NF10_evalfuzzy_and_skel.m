@@ -1,7 +1,8 @@
 
 NF00_header;
 h = fspecial('gaussian', 11,1);
-
+debug_plot = true;
+warning('off', 'all');
 for cindex=1:numel(ttable(:,1));
     
 
@@ -30,29 +31,35 @@ for cindex=1:numel(ttable(:,1));
         hGST=reshape(PREGST,401,401);
         % % % % % % numthr below determines Y/N so the number should be
         % based on statistical results!!!!!
-        hGST(hGST<=0)=nan;
-         numthr=0.24;
+       
+        % hGST(hGST<=0)=nan;
+        numthr=0.24;
+        hGST = double(hGST>=numthr);
+        % hGST(hGST<=0) = 0;
+        % hGST(isnan(hGST)) = 0;
          
-        for iii=1:401
-            for jjj=1:401
-                if (hGST(iii,jjj)>=numthr) 
-                    hGST(iii,jjj)=1;
-                else
-                    hGST(iii,jjj)=0;
-                end
-                if (hGST(iii,jjj)>1) 
-                hGST(iii,jjj)=1;
-                end
-                if (isnan(hGST(iii,jjj))==1) 
-                hGST(iii,jjj)=0;
-                end
-            end
-        end
+        % for iii=1:401
+        %     for jjj=1:401
+        %         if (hGST(iii,jjj)>=numthr) 
+        %             hGST(iii,jjj)=1;
+        %         else
+        %             hGST(iii,jjj)=0;
+        %         end
+        %         if (hGST(iii,jjj)>1) 
+        %         hGST(iii,jjj)=1;
+        %         end
+        %         if (isnan(hGST(iii,jjj))==1) 
+        %         hGST(iii,jjj)=0;
+        %         end
+        %     end
+        % end
         
          hh=hGST;
         
-        clear hGST;
-        hGST=medfilt2(hh,[3 3]);
+        % clear hGST;
+        % hGST=medfilt2(hh,[3 3]);
+
+        hGST=medfilt2(hGST,[3 3]);
         
         smoothedhGST = imfilter(hGST,h,'replicate');
 %         se = strel('ball',5,1);
@@ -81,12 +88,13 @@ for cindex=1:numel(ttable(:,1));
 %         ylim([-100 100])
 %         title('right after NFsystem (before postprocessing)')
 %         
-% 
-        figure(m+10)
-        plot(xi2(logical(hGST)),yi2(logical(hGST)),'b.')
-        xlim([-100 100])
-        ylim([-100 100])
-        title('Postprocessing_1 NFsystem (3 by 3 window median filter)')
+        if debug_plot
+            figure(m+10)
+            plot(xi2(logical(hGST)),yi2(logical(hGST)),'b.')
+            xlim([-100 100])
+            ylim([-100 100])
+            title('Postprocessing_1 NFsystem (3 by 3 window median filter)')
+        end
 % 
 %         
 %         pcolor(xi2,yi2,hGST)
