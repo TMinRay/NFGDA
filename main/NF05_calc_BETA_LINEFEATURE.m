@@ -21,12 +21,9 @@ run ../IMG/exe_3_img_exe.m;
 
 for cindex=1:numel(ttable(:,1));
     
-    PUTDAT=[ ttable(cindex,:) ];
+    PUTDAT=ttable(cindex,:);
     startm=startt(cindex)+1;
-    endm=endt(cindex);   
-    LINE=[];
-    linefeat1=[];
-    linefeat2=[]; 
+    endm=endt(cindex);
     for m=startm:endm
         mTOTLINout=[matPATH '/LINE/beta' PUTDAT num2str(m,'%02i') '.mat'];
         mLINEout=[matPATH '/LINE/Z/linez' PUTDAT num2str(m,'%02i') '.mat'];    
@@ -37,24 +34,11 @@ for cindex=1:numel(ttable(:,1));
         load(mLINEout2, 'widecellz');
         mcartout=[matPATH '/CART/cart' PUTDAT num2str(m,'%02i') '.mat']; 
         load(mcartout, 'PARITP'); 
-        nanind=isnan(PARITP(:,:,1));
-        pbeta=(linez+linedelz)./2;
-        pbeta(nanind==1)=nan;
-        beta=pbeta-widecellz; 
+        % nanind=isnan(PARITP(:,:,1));
+        pbeta = (linez+linedelz)./2;
+        pbeta(isnan(PARITP(:,:,1)))=nan;
+        beta = pbeta-widecellz;
         beta(beta<0)=0;
-        save(mTOTLINout,'beta');   
-        
-%         figure(m)
-%         pcolor(xi2,yi2,double(pbeta))
-%         shading flat
-        
-        
-        clear linez linedelz widecellz pbeta beta;
+        save(mTOTLINout,'beta');
    end
 end
-
-
-
-
-
-   

@@ -16,7 +16,7 @@ for cindex=1:numel(ttable(:,1));
         %         a(ii,jj)=max(originscore(ii,jj,:));
         %     end
         % end
-        linez=a;
+        % linez=a;
         save(mLINEout, 'linez');
         clear originscore 
      end
