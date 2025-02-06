@@ -15,8 +15,9 @@
 % % % NF01_convert_nc_to_mat
 
 % NF01_convert_V06_to_mat
-
+tic
 NF01_convert_to_cartesian
+toc
 NF02_calc_5by5_SD
 NF04_calc_DeltaZ
 NF05_calc_BETA_LINEFEATURE
