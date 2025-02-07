@@ -37,23 +37,25 @@ for cindex=1:numel(ttable(:,1));
     pPARITP(:,:,5)=stda(:,:,2);
     pPARITP(:,:,6)=PARITP(:,:,4);
     pnan=(isnan(pPARITP));
-    for ii=1:401
-        nanval=[];
-        for jj=1:401
-            nanval=(pnan(ii,jj,:));
-            pnansum(ii,jj)=sum(nanval(:));    
-            clear nanval;
-        end
-    end
-    for i=1:6
-        for ki=1:401
-            for kj=1:401 
-                if(pnansum(ki,kj)>0)
-                pPARITP(ki,kj,i)=nan;    
-                end
-            end
-        end
-    end
+    pnansum=max(pnan,[],3);
+    % for ii=1:401
+    %     nanval=[];
+    %     for jj=1:401
+    %         nanval=(pnan(ii,jj,:));
+    %         pnansum(ii,jj)=sum(nanval(:));    
+    %         clear nanval;
+    %     end
+    % end
+    pPARITP(repmat(pnansum, 1, 1, size(pPARITP, 3))) = nan;
+    % for i=1:6
+    %     for ki=1:401
+    %         for kj=1:401 
+    %             if(pnansum(ki,kj)>0)
+    %             pPARITP(ki,kj,i)=nan;    
+    %             end
+    %         end
+    %     end
+    % end
     inputNF=pPARITP; 
     save(minputNF,'inputNF')
     clear pPARTITP PARITP pnansum pnan PARtot;
