@@ -38,7 +38,9 @@ toc
 % % 1. obtain fuzzy output
 % % 2. 3 by 3 window filtering
 % % 3. skeleton thining
+tic
 NF11_postprocessing_movingavg
+toc
 % % postprocess --> obtain probable area of GF
 NF12_final_output_skel
 % % final output-thinned line (detected GF)
