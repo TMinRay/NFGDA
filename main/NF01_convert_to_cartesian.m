@@ -16,6 +16,8 @@
 % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % 
 
 NF00_header;
+xg = x(2:end,:);
+yg = y(2:end,:);
 %%%% NF01_convert_to_cartesian
 for cindex=1:numel(ttable(:,1));
 
@@ -44,9 +46,14 @@ for cindex=1:numel(ttable(:,1));
         sdphi(5:Gate2-2,:) = std(buf(5:Gate2-2,:,:),0,3,"omitmissing");
         PARROT(:,:,4)=sdphi;
 % % % % %         new way to obtain SD(phi_DP) only in radial direction
+        val = PARROT(2:end,:,1);
+        F = scatteredInterpolant(xg(:),yg(:),val(:));  % Options: 'linear', 'cubic', 'nearest'
         for i=1:6
-            a=double(PARROT(:,:,i));
-            PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
+            % a=double(PARROT(:,:,i));
+            % PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
+            val = PARROT(2:end,:,i);
+            F.Values = double(val(:));
+            PARITP(:,:,i) = F(xi2,yi2);
         end
         save(mcartout, 'PARITP');
         clear PARITP PARITP;
