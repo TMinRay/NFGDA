@@ -15,9 +15,7 @@
 % % % NF01_convert_nc_to_mat
 
 % NF01_convert_V06_to_mat
-tic
 NF01_convert_to_cartesian
-toc
 NF02_calc_5by5_SD
 NF04_calc_DeltaZ
 NF05_calc_BETA_LINEFEATURE
@@ -32,15 +30,11 @@ NF08_making_training_dataset
 % % + obtaining trainingdataset
 % % -- defined in NF00_header
 % % use command "anfisedit" to train NFsystem
-tic
 NF10_evalfuzzy_and_skel
-toc
 % % 1. obtain fuzzy output
 % % 2. 3 by 3 window filtering
 % % 3. skeleton thining
-tic
 NF11_postprocessing_movingavg
-toc
 % % postprocess --> obtain probable area of GF
 NF12_final_output_skel
 % % final output-thinned line (detected GF)

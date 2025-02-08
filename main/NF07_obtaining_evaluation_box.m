@@ -27,19 +27,21 @@ for cindex=1:numel(ttable(:,1));
         mcartout=[matPATH '/CART/cart' PUTDAT num2str(m,'%02i') '.mat']; 
         load(mcartout, 'PARITP'); 
         REF=PARITP(:,:,1); 
-        for iii=1:401
-            for jjj=1:401
-                if isnan(REF(iii,jjj))==1
-                    REF(iii,jjj)=0;
-                end
-            end
-        end
+        % for iii=1:401
+        %     for jjj=1:401
+        %         if isnan(REF(iii,jjj))==1
+        %             REF(iii,jjj)=0;
+        %         end
+        %     end
+        % end
+        REF(isnan(REF))=0;
 
-        mhandpick=[ matPATH '/HANDPICK/handpick' PUTDAT num2str(m,'%02i') '.mat']; 
+
+        mhandpick=[ matPATH '/HANDPICK/handpick' PUTDAT num2str(m,'%02i') '.mat'];
         load(mhandpick,'handpick');
         pevalbox = bwmorph(double(handpick), 'skel', inf);
         evalbox = double(imdilate(double(pevalbox),se)>1);
-        mevalbox=[ matPATH '/EVAL/newevalbox' PUTDAT num2str(m,'%02i') '.mat']; 
+        mevalbox=[ matPATH '/EVAL/newevalbox' PUTDAT num2str(m,'%02i') '.mat'];
         
 %         figure(m)
 %         pcolor(xi2,yi2,evalbox)

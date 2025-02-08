@@ -23,7 +23,7 @@ load('../IMG/tmpCELLdatax.mat','datacx');
 load('../IMG/tmpCELLdatay.mat','datacy');
 load('../IMG/tmpCELLdatax2.mat','datacx2');
 load('../IMG/tmpCELLdatay2.mat','datacy2');
-indexcnum = numel(datacx);
+ndatacx = numel(datacx);
 crsize = 5;
 cellINT = crsize + 2;
 widecellINT =crsize+4;
@@ -55,7 +55,7 @@ for i=1:17
     disccx(i,:)=ccx;
     disccy(i,:)=ccy;
 end
-indexcnum=numel(ccx);
+nccx=numel(ccx);
 disccx = reshape(disccx,1,17,17);
 disccy = reshape(disccy,1,17,17);
 
@@ -66,14 +66,13 @@ for cindex=1:numel(ttable(:,1));
     PUTDAT=ttable(cindex,:);
     startm=startt(cindex);
     endm=endt(cindex);
-    PARITP=[];
     for m=startm:endm
         mpolarout=[matPATH '/POLAR/polar' PUTDAT num2str(m,'%02i') '.mat'];
-        load(mpolarout, 'PARROT'); 
+        t0 = load(mpolarout, 'PARROT');
         PARITP=zeros(401,401,6);
         varnum=[1 2 3 4 5 6];
         sdphi=zeros(400,720);
-        phi=double(PARROT(:,:,4));
+        phi=double(t0.PARROT(:,:,4));
         phi(phi<0)=nan;
         phi(phi>360)=nan;
         buf =zeros(400,720,5);
@@ -85,18 +84,18 @@ for cindex=1:numel(ttable(:,1));
             buf(5:Gate2-2,:,displaceR+3)=phi(5+displaceR:Gate2-2+displaceR,:);
         end
         sdphi(5:Gate2-2,:) = std(buf(5:Gate2-2,:,:),0,3,"omitmissing");
-        PARROT(:,:,4)=sdphi;
+        t0.PARROT(:,:,4)=sdphi;
 % % % % % %         new way to obtain SD(phi_DP) only in radial direction
 %         for i=1:6
 %             a=double(PARROT(:,:,i));
 %             PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
 %         end
-        val = PARROT(2:end,:,1);
-        F = scatteredInterpolant(xg(:),yg(:),val(:));  % Options: 'linear', 'cubic', 'nearest'
+        val = t0.PARROT(2:end,:,1);
+        F = scatteredInterpolant(xg(:),yg(:),val(:));
         for i=1:6
             % a=double(PARROT(:,:,i));
             % PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
-            val = PARROT(2:end,:,i);
+            val = t0.PARROT(2:end,:,i);
             F.Values = double(val(:));
             PARITP(:,:,i) = F(xi2,yi2);
         end
@@ -116,7 +115,8 @@ for cindex=1:numel(ttable(:,1));
     if not(isfolder(exp_preds_event))
         mkdir(exp_preds_event);
     end
-
+    mrout1=[matPATH '/POLAR/polar' PUTDAT num2str(startm-1,'%02i') '.mat'];
+    t0=load(mrout1, 'PARROT');
     for m=startm:endm
 %%%%%%%%%%%%%%      NF02_calc_5by5_SD
         % mcartout=[matPATH '/CART/cart' PUTDAT num2str(m,'%02i') '.mat'];
@@ -148,7 +148,7 @@ for cindex=1:numel(ttable(:,1));
 %%%%%%%%%%%%%%      NF04_calc_DeltaZ
         % mrout1=[matPATH '/POLAR/polar' PUTDAT num2str(m-1,'%02i') '.mat'];
         % load(mrout1, 'PARROT');
-        zt0 = PARROT(:,:,1);
+        zt0 = t0.PARROT(:,:,1);
         zt0(isnan(zt0)) = 0;
 
         mrout2=[matPATH '/POLAR/polar' PUTDAT num2str(m,'%02i') '.mat']; 
@@ -214,7 +214,7 @@ for cindex=1:numel(ttable(:,1));
         cbox=a2(c_indices);
         indcb = cbox>cellthresh;
         numtcb=sum(indcb,1);
-        cbr = numtcb/indexcnum;
+        cbr = numtcb/ndatacx;
         row_indices = row_indices(cbr>cbcellthrsh);
         col_indices = col_indices(cbr>cbcellthrsh);
         cbox = cbox(:,cbr>cbcellthrsh);
@@ -247,7 +247,7 @@ for cindex=1:numel(ttable(:,1));
         c_indices = sub2ind(size(a2), cridx, ccidx);
         cbox=double(a2(c_indices)>cellcsrthresh);
         numtcb=sum(cbox,1);
-        cbr = numtcb/indexnum;
+        cbr = numtcb/ndatacx;
         row_indices = row_indices(cbr<1);
         col_indices = col_indices(cbr<1);
         cridx = row_indices.' + datacy2;
@@ -329,7 +329,7 @@ for cindex=1:numel(ttable(:,1));
         cbox=a2(c_indices);
         indcb = cbox>0;
         numtcb=sum(indcb,3);
-        cbr = numtcb/indexcnum;
+        cbr = numtcb/nccx;
         validcenter = max(cbr>0.1,[],2);
         row_indices = row_indices(validcenter);
         col_indices = col_indices(validcenter);
@@ -353,7 +353,7 @@ for cindex=1:numel(ttable(:,1));
         % REF=inputNF(:,:,1);
         REF=inputNF(:,:,2);
         nfout=skel_nfout2;
-        matout = [exp_preds_event '\' num2str(m,'%02i') '.mat']; 
+        matout = [exp_preds_event '\' num2str(m,'%02i') '.mat'];
         save(matout,"xi2","yi2","REF","nfout","evalbox");
 %%%%%%%%%%%%%%      NFFIG_03FINAL_output
 
@@ -363,6 +363,7 @@ for cindex=1:numel(ttable(:,1));
                 'zoriginscore', 'linez', 'linedelz', 'CELLline', 'widecellz', ...
                 'beta', 'inputNF', 'ppresult', 'skel_nfout', 'skel_nfout2');
         end
+        t0.PARROT = PARROT;
     end
 end
 toc
