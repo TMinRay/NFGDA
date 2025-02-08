@@ -60,51 +60,16 @@ disccx = reshape(disccx,1,17,17);
 disccy = reshape(disccy,1,17,17);
 
 
-%%%% NF01_convert_to_cartesian
-for cindex=1:numel(ttable(:,1));
+% %%%% NF01_convert_to_cartesian
+% for cindex=1:numel(ttable(:,1));
 
-    PUTDAT=ttable(cindex,:);
-    startm=startt(cindex);
-    endm=endt(cindex);
-    for m=startm:endm
-        mpolarout=[matPATH '/POLAR/polar' PUTDAT num2str(m,'%02i') '.mat'];
-        t0 = load(mpolarout, 'PARROT');
-        PARITP=zeros(401,401,6);
-        varnum=[1 2 3 4 5 6];
-        sdphi=zeros(400,720);
-        phi=double(t0.PARROT(:,:,4));
-        phi(phi<0)=nan;
-        phi(phi>360)=nan;
-        buf =zeros(400,720,5);
-        % for displaceR=-2:2
-        %     buf(3:end-2,:,displaceR+3)=phi(3+displaceR:end-2+displaceR,:);
-        % end
-        % sdphi(3:end-2,:) = std(buf(3:end-2,:,:),0,3,"omitmissing");
-        for displaceR=-2:2
-            buf(5:Gate2-2,:,displaceR+3)=phi(5+displaceR:Gate2-2+displaceR,:);
-        end
-        sdphi(5:Gate2-2,:) = std(buf(5:Gate2-2,:,:),0,3,"omitmissing");
-        t0.PARROT(:,:,4)=sdphi;
-% % % % % %         new way to obtain SD(phi_DP) only in radial direction
-%         for i=1:6
-%             a=double(PARROT(:,:,i));
-%             PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
-%         end
-        val = t0.PARROT(2:end,:,1);
-        F = scatteredInterpolant(xg(:),yg(:),val(:));
-        for i=1:6
-            % a=double(PARROT(:,:,i));
-            % PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
-            val = t0.PARROT(2:end,:,i);
-            F.Values = double(val(:));
-            PARITP(:,:,i) = F(xi2,yi2);
-        end
-        if debugmat
-            mcartout=[matPATH '/DEBUG/cart' PUTDAT num2str(m,'%02i') '.mat'];
-            save(mcartout, 'PARITP');
-        end
-    end
-end
+%     PUTDAT=ttable(cindex,:);
+%     startm=startt(cindex);
+%     endm=endt(cindex);
+%     for m=startm:endm
+
+%     end
+% end
 
 for cindex=1:numel(ttable(:,1));
     PUTDAT=ttable(cindex,:);
@@ -118,6 +83,44 @@ for cindex=1:numel(ttable(:,1));
     mrout1=[matPATH '/POLAR/polar' PUTDAT num2str(startm-1,'%02i') '.mat'];
     t0=load(mrout1, 'PARROT');
     for m=startm:endm
+%%%%%%%%%%%%%%      NF01_convert_to_cartesian
+        mpolarout=[matPATH '/POLAR/polar' PUTDAT num2str(m,'%02i') '.mat'];
+        load(mpolarout, 'PARROT');
+        PARITP=zeros(401,401,6);
+        varnum=[1 2 3 4 5 6];
+        sdphi=zeros(400,720);
+        phi=double(PARROT(:,:,4));
+        phi(phi<0)=nan;
+        phi(phi>360)=nan;
+        buf =zeros(400,720,5);
+        % for displaceR=-2:2
+        %     buf(3:end-2,:,displaceR+3)=phi(3+displaceR:end-2+displaceR,:);
+        % end
+        % sdphi(3:end-2,:) = std(buf(3:end-2,:,:),0,3,"omitmissing");
+        for displaceR=-2:2
+            buf(5:Gate2-2,:,displaceR+3)=phi(5+displaceR:Gate2-2+displaceR,:);
+        end
+        sdphi(5:Gate2-2,:) = std(buf(5:Gate2-2,:,:),0,3,"omitmissing");
+        PARROT(:,:,4)=sdphi;
+% % % % % %         new way to obtain SD(phi_DP) only in radial direction
+%         for i=1:6
+%             a=double(PARROT(:,:,i));
+%             PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
+%         end
+        val = PARROT(2:end,:,1);
+        F = scatteredInterpolant(xg(:),yg(:),val(:));
+        for i=1:6
+            % a=double(PARROT(:,:,i));
+            % PARITP(:,:,i) = griddata(x,y,a,xi2,yi2);
+            val = PARROT(2:end,:,i);
+            F.Values = double(val(:));
+            PARITP(:,:,i) = F(xi2,yi2);
+        end
+        if debugmat
+            mcartout=[matPATH '/DEBUG/cart' PUTDAT num2str(m,'%02i') '.mat'];
+            save(mcartout, 'PARITP');
+        end
+%%%%%%%%%%%%%%      NF01_convert_to_cartesian
 %%%%%%%%%%%%%%      NF02_calc_5by5_SD
         % mcartout=[matPATH '/CART/cart' PUTDAT num2str(m,'%02i') '.mat'];
         % load(mcartout, 'PARITP');
@@ -151,8 +154,8 @@ for cindex=1:numel(ttable(:,1));
         zt0 = t0.PARROT(:,:,1);
         zt0(isnan(zt0)) = 0;
 
-        mrout2=[matPATH '/POLAR/polar' PUTDAT num2str(m,'%02i') '.mat']; 
-        load(mrout2, 'PARROT');
+        % mrout2=[matPATH '/POLAR/polar' PUTDAT num2str(m,'%02i') '.mat']; 
+        % load(mrout2, 'PARROT');
         zt1(:,:) = PARROT(:,:,1);
         zt1(isnan(zt1)) = 0;
         dif2 = zt1 - zt0;

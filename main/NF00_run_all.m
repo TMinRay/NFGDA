@@ -21,7 +21,7 @@ NF04_calc_DeltaZ
 NF05_calc_BETA_LINEFEATURE
 NF06_calc_6variables_preprocessing
 
-NF07_handpick_region
+% NF07_handpick_region
 NF07_obtaining_evaluation_box
 
 % % -------------pre-processing
