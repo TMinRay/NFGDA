@@ -43,7 +43,7 @@ ttable=char( 'KGGW20210722_23');
 %   endt=[11 18 10 39 21 15  47 45 39 10 20 10 ];
 
 startt=[1];
-endt=[4];
+endt=[2];
 
 
 % % % % % this part is for choosing specific date for making training
