@@ -23,7 +23,8 @@ matPATH=['../mat'];
 
 % ttable=char( 'KABR20140621_21');
 ttable=char( 'KGGW20210722_23');
-         
+% ttable = char( 'KMAX20230815_22');         
+no_eval = false;
          
          
 %   1       ttable=char( 'KOUN100611', ...
@@ -44,6 +45,9 @@ ttable=char( 'KGGW20210722_23');
 
 startt=[1];
 endt=[4];
+
+% startt=[46];
+% endt=[71];
 
 
 % % % % % this part is for choosing specific date for making training

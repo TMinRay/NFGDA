@@ -306,10 +306,16 @@ for cindex=1:numel(ttable(:,1));
 %%%%%%%%%%%%%%      NF10_evalfuzzy_and_skel
 
 %%%%%%%%%%%%%%      NF07_obtaining_evaluation_box
-        mhandpick=[ matPATH '/HANDPICK/handpick' PUTDAT num2str(m,'%02i') '.mat'];
-        load(mhandpick,'handpick');
-        pevalbox = bwmorph(double(handpick), 'skel', inf);
-        evalbox = double(imdilate(double(pevalbox),se)>1);
+
+        if no_eval
+            evalbox = zeros(401,401);
+        else
+            mhandpick=[ matPATH '/HANDPICK/handpick' PUTDAT num2str(m,'%02i') '.mat'];
+            load(mhandpick,'handpick');
+            pevalbox = bwmorph(double(handpick), 'skel', inf);
+            evalbox = double(imdilate(double(pevalbox),se)>1);
+        end
+
         if debugmat
             mevalbox=[ matPATH '/DEBUG/newevalbox' PUTDAT num2str(m,'%02i') '.mat'];
             save(mevalbox,'evalbox');
