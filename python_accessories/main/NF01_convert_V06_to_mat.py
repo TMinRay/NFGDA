@@ -20,6 +20,16 @@ def read_info_from_radar_name(radar_file):
     ss = radar_file[17:19]
     return radar_name, year, month, day, hh, mm, ss
 
+def ReadSliceElevation(radar, slice_idx):
+    """ Copied from https://github.com/PreciousJatau47/VAD_correction/blob/master/RadarHCAUtils.py
+    :param radar:
+    :param slice_idx:
+    :return:
+    """
+    sweep_ind = radar.get_slice(slice_idx)
+    radar_el = radar.elevation['data'][sweep_ind]
+    return radar_el
+
 
 def ReadRadarSliceUpdate(radar, slice_idx):
     """ Copied from https://github.com/PreciousJatau47/VAD_correction/blob/master/RadarHCAUtils.py
@@ -62,7 +72,7 @@ NUM_AZ = 720
 def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
     var_2_parrot_idx = {'reflectivity': 0, 'velocity': 1, 'spectrum_width': 2, 'differential_phase': 3,
                         'cross_correlation_ratio': 4, 'differential_reflectivity': 5}
-
+    target_el = 1.25
     v06_folder = os.path.join(v06_folder, case_id)
     l2_files = [entry for entry in os.listdir(v06_folder) if entry.endswith("V06")]
     l2_files.sort()
@@ -102,9 +112,13 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
         # Initialize data cube
         PARROT = np.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)
-        in_parrot = [False for i in range(6)]
+        in_parrot = np.full(6,False)
 
-        for slice_idx in [0, 1]:
+        for slice_idx in range(nsweeps):
+            radar_el = ReadSliceElevation( radar_obj, slice_idx)
+            scan_el = np.nanmedian(radar_el)
+            if abs(scan_el-target_el)>0.3:
+                continue
             radar_range, az_sweep_deg, radar_el, data_slice, mask_slice, labels_slice, data_mask_slice = ReadRadarSliceUpdate(
                 radar_obj, slice_idx)
             print("Processing elevation {} degrees".format(np.nanmedian(radar_el)))
@@ -129,7 +143,8 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
                 curr_data[curr_mask] = np.nan  # (720, 400)
                 curr_data = np.roll(a=curr_data, shift=az_shift, axis=0)
                 PARROT[:, :, i_parrot] = curr_data.T
-
+            if np.min(in_parrot):
+                break
             print()
         print()
         scipy.io.savemat(output_path, {"PARROT": PARROT})
