@@ -293,9 +293,10 @@ for cindex=1:numel(ttable(:,1));
             evalbox = zeros(401,401);
         else
             mhandpick=[ matPATH '/HANDPICK/handpick' PUTDAT num2str(m,'%02i') '.mat'];
-            load(mhandpick,'handpick');
-            pevalbox = bwmorph(double(handpick), 'skel', inf);
-            evalbox = double(imdilate(double(pevalbox),se)>1);
+            load(mhandpick,'evalbox');
+            % load(mhandpick,'handpick');
+            % pevalbox = bwmorph(double(handpick), 'skel', inf);
+            % evalbox = double(imdilate(double(pevalbox),se)>1);
         end
 
         if debugmat
