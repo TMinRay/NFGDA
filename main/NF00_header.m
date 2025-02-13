@@ -22,9 +22,9 @@ oriPATH=['../necdf'];
 matPATH=['../mat'];
 
 % ttable=char( 'KABR20140621_21');
-ttable=char( 'KGGW20210722_23');
-% ttable = char( 'KMAX20230815_22');         
-no_eval = false;
+% ttable=char( 'KGGW20210722_23');
+ttable = char( 'KMAX20230815_22');         
+no_eval = true;
          
          
 %   1       ttable=char( 'KOUN100611', ...
@@ -43,11 +43,13 @@ no_eval = false;
 % startt=[ 2 12 2 28 12  9  26 33 22   1 11  1 ];
 %   endt=[11 18 10 39 21 15  47 45 39 10 20 10 ];
 
-startt=[1];
-endt=[4];
+% startt=[1];
+% endt=[4];
 
 % startt=[46];
 % endt=[71];
+startt=[32];
+endt=[71];
 
 
 % % % % % this part is for choosing specific date for making training
