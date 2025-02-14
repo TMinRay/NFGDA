@@ -66,15 +66,15 @@ else % event_id is 'real_case'
                 timeofday(datetime(ppi_name(14:19), 'InputFormat', 'HHmmss'));
 
         radar_id = ppi_name(1:4);
-        yyyy = ppi_name(5:8);
-        mm = ppi_name(9:10);
-        dd = ppi_name(11:12);
-        hh = ppi_name(14:15);
-        minute = ppi_name(16:17);
-        ss = ppi_name(18:19);
+        % yyyy = ppi_name(5:8);
+        % mm = ppi_name(9:10);
+        % dd = ppi_name(11:12);
+        % hh = ppi_name(14:15);
+        % minute = ppi_name(16:17);
+        % ss = ppi_name(18:19);
 
         % ppi_desc = [radar_id ', ' mm '/' dd '/' yyyy ', ' hh ':' minute ':' ss ' UTC.'];
-        ppi_desc = [radar_id ', ' string(tstamp, 'MM/dd/yyyy, HH:mm:ss z')];
+        ppi_desc = [radar_id ', ' char(tstamp, 'MM/dd/yyyy, HH:mm:ss z')];
         ppi_descs{end+1} = ppi_desc;
         disp(ppi_desc);
 
