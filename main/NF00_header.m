@@ -23,7 +23,7 @@ matPATH=['../mat'];
 
 % ttable=char( 'KABR20140621_21');
 % ttable=char( 'KGGW20210722_23');
-ttable = char( 'KABX20200705_21');         
+case_name = 'KABX20200705_21';
 no_eval = false;
          
          

@@ -89,12 +89,14 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
         print("Processing ", l2_file)
 
         # Output path.
-        output_folder = os.path.join(mat_folder, 'POLAR')
+        output_folder = os.path.join(mat_folder, 'POLAR', case_id)
 
         if not os.path.isdir(output_folder):
             os.makedirs(output_folder)
 
-        mat_file = "".join(['polar', case_id, '%02i' % (i + 1), '.mat'])
+        # mat_file = "".join(['polar', case_id, '%02i' % (i + 1), '.mat'])
+        mat_file = f'polar_{i + 1:0>2d}_' + l2_file.split('.')[0]+'.mat'
+
         output_path = os.path.join(output_folder, mat_file)
 
         # read l2 data
