@@ -1,7 +1,7 @@
 function [] = plot_tracks(track_history, gt_history, x_grid, y_grid, ts, ...
     min_depth, fig_axis, show_tracks, show_most_recent, fig_dir, cmap_type,...
     title_suffix, clusters_history, R_roi, azdeg_roi, ppi_descs, ...
-    station_ids, station_locs)
+    station_ids, station_locs, baseframe)
 
 def_color_order = get(gca,'colororder'); close;
 len_col_order = length(def_color_order);
@@ -192,7 +192,7 @@ for it = 1:length(ts)
     title(title_str, 'FontSize',13);
     set(gca,'TickDir','out','box','on','TickLength'  , [.01 .01], ...
         'LineWidth', 2, 'XTick', -100:20:100,'YTick', -100:20:100);
-    outfile_track = fullfile(fig_dir, ['track_' sprintf('%03d', it) '.png']);
+    outfile_track = fullfile(fig_dir, ['track_' sprintf('%03d', baseframe + it) '.png']);
     print(outfile_track, '-dpng');
     %     close all;
 end

@@ -59,7 +59,7 @@ else % event_id is 'real_case'
 
         outfile_pos = strsplit(ppi_id,'.');
         ppi_id_no_ext = outfile_pos{1};
-        ppi_name = ppi_id(12:end)
+        ppi_name = ppi_id(12:end);
         % ppi_num = str2num(ppi_id_no_ext);
         % ppi_name = ppi_names{ppi_num};
         % disp(ppi_name);
