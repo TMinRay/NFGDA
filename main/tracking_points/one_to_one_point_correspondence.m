@@ -4,6 +4,7 @@ function [track_history, clusters_history] = one_to_one_point_correspondence(ts,
 live_points = track_history{1};
 
 for it = 2:length(ts)
+    tic
     curr_time = ts(it);
 
     % calculate time difference
@@ -231,5 +232,7 @@ for it = 2:length(ts)
 
     track_history{it} = live_points;
     clusters_history{it} = curr_clusters;
+    elapsed_time = toc;
+    fprintf('Correspondence frame %d :: Elapsed time: %.3f seconds\n', it, elapsed_time);
 end
 end

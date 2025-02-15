@@ -117,17 +117,17 @@ for case_id = 1:length(case_names)
 
     close all;
 
-% % False alarm mitigation
-% [track_history, clusters_history] = cure_tracks(track_history, clusters_history, ts);
-% 
-% % Figures for detections after false alarm mitigation
-% title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
-% fig_dir_tracks = fullfile(fig_dir,'hit_miss_cured', case_name);
-% plot_tracks(track_history, gt_history, xi2, yi2, ts, 0, fig_axis, false, ...
-%     true, fig_dir_tracks,'hit-miss',title_suffix, clusters_history, ...
-%     R_roi, azdeg_roi, ppi_descs, station_ids, station_locs);
-% 
-% close all;
+    % False alarm mitigation
+    track_history = cure_tracks(track_history, clusters_history, ts);
+
+    % Figures for detections after false alarm mitigation
+    title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
+    fig_dir_tracks = fullfile(fig_dir,'hit_miss_cured', case_name);
+    plot_tracks(track_history, gt_history, xi2, yi2, ts, 0, fig_axis, false, ...
+        true, fig_dir_tracks,'hit-miss',title_suffix, clusters_history, ...
+        R_roi, azdeg_roi, ppi_descs, station_ids, station_locs);
+
+    close all;
 
 %     % Export detections for PLD, Precision analysis
 %     lb_x = -100; lb_y = -100;
