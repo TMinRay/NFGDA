@@ -29,12 +29,12 @@ points_struct = struct('pos', [], 'displ',[], 'dirn', NaN, 'del_t', NaN, ...
     'depth', 0, 'id','', 'prev', NaN, 'update_time', NaN, 'del_dirn', NaN,...
     'cluster', NaN, 'vel_cart', []);
 cluster_struct = struct('id', NaN, 'centroid',[],'area',NaN, 'num_anchors', 0, ...
-    'vel_cart',[]);
+    'vel_cart',[NaN;NaN]);
 exp_gf_speed_range = [4, 32]; % Hwang thesis: GF propagation speed is 5-20 mps (18-72 kmph)
 max_del_dirn = pi/16; %pi/4;
 
 % Forecast options
-anchor_t_index = 14;% 12;
+anchor_t_index = 4;% 12;
 
 for case_id = 1:length(case_names)
 
@@ -74,23 +74,32 @@ for case_id = 1:length(case_names)
     intialize_gf_event
 
     % TODO(pjatau) move outside loop
-    exp_del_t = max(hours(ts(2:end) - ts(1:end-1)));
+    exp_del_t = max(ts(2:end) - ts(1:end-1));
     max_age = 1.05* exp_del_t; % 1*1; 2;
 
     % Initialize tracks
-    track_history = {};
-    indexed_points = cell(1, length(det_history{1}));
-    for i = 1:length(det_history{1})
-        point = points_struct;
-        point.pos = det_history{1}(:,i);
-        point.cluster = cluster_points_history{1}(i);
-        point.update_time = ts(1);
-        indexed_points{i} = point;
-    end
-    track_history{1} = indexed_points;
+    % track_history = {};
+    % indexed_points = cell(1, length(det_history{1}));
+    % for i = 1:length(det_history{1})
+    %     point = points_struct;
+    %     point.pos = det_history{1}(:,i);
+    %     point.cluster = cluster_points_history{1}(i);
+    %     point.update_time = ts(1);
+    %     indexed_points{i} = point;
+    % end
+
+    % indexed_points = repmat(points_struct, 1, size(det_history{1},2));
+    % point.update_time = ts(1);
+    % for i = 1:size(det_history{1},2)
+    %     indexed_points(i).pos = det_history{1}(:,i);
+    %     indexed_points(i).cluster = cluster_points_history{1}(i);
+    % end
+
+    % track_history{1} = indexed_points;
 
     % Point tracking
-    [track_history, clusters_history] = one_to_one_point_correspondence(ts, det_history,cluster_points_history, track_history, max_age, max_del_dirn, points_struct, exp_gf_speed_range, clusters_history);
+    % [track_history, clusters_history] = one_to_one_point_correspondence(ts, det_history,cluster_points_history, track_history, max_age, max_del_dirn, points_struct, exp_gf_speed_range, clusters_history);
+    [track_history, clusters_history] = one_to_one_point_correspondence(ts, points_in_scan, max_age, max_del_dirn, points_struct, exp_gf_speed_range, clusters_history);
 
     % Figures for initial detections
     title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
@@ -108,17 +117,17 @@ for case_id = 1:length(case_names)
 
     close all;
 
-    % False alarm mitigation
-    [track_history, clusters_history] = cure_tracks(track_history, clusters_history, ts);
-
-    % Figures for detections after false alarm mitigation
-    title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
-    fig_dir_tracks = fullfile(fig_dir,'hit_miss_cured', case_name);
-    plot_tracks(track_history, gt_history, xi2, yi2, ts, 0, fig_axis, false, ...
-        true, fig_dir_tracks,'hit-miss',title_suffix, clusters_history, ...
-        R_roi, azdeg_roi, ppi_descs, station_ids, station_locs);
-
-    close all;
+% % False alarm mitigation
+% [track_history, clusters_history] = cure_tracks(track_history, clusters_history, ts);
+% 
+% % Figures for detections after false alarm mitigation
+% title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
+% fig_dir_tracks = fullfile(fig_dir,'hit_miss_cured', case_name);
+% plot_tracks(track_history, gt_history, xi2, yi2, ts, 0, fig_axis, false, ...
+%     true, fig_dir_tracks,'hit-miss',title_suffix, clusters_history, ...
+%     R_roi, azdeg_roi, ppi_descs, station_ids, station_locs);
+% 
+% close all;
 
 %     % Export detections for PLD, Precision analysis
 %     lb_x = -100; lb_y = -100;
@@ -165,10 +174,10 @@ for case_id = 1:length(case_names)
     end
 
     forecast_id = sprintf('%s_anchor_%d', case_name, anchor_t_index+1);
-    forecast_dir = fullfile(root_forecast_dir, forecast_id);
-    if ~isfolder(forecast_dir)
-        mkdir(forecast_dir);
-    end
+    % forecast_dir = fullfile(root_forecast_dir, forecast_id);
+    % if ~isfolder(forecast_dir)
+    %     mkdir(forecast_dir);
+    % end
 
     % plot forecast
     fig_dir_tracks = fullfile(fig_dir,'forecast_results',forecast_id);

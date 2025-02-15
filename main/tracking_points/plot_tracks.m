@@ -59,7 +59,7 @@ for it = 1:length(ts)
     most_rec_cluster = [];
 
     for i = 1:length(indexed_points)
-        point = indexed_points{i};
+        point = indexed_points(i);
         depth_cond = point.depth < min_depth;
 %         depth_cond = point.num_anchors < min_depth;
         if point.update_time < ts(it)
@@ -67,7 +67,7 @@ for it = 1:length(ts)
         end
 
         cluster_id = point.cluster;
-        cluster_info = indexed_clusters{cluster_id};
+        cluster_info = indexed_clusters(cluster_id);
         depth_cond = cluster_info.num_anchors < 2;
 
 %         if depth_cond

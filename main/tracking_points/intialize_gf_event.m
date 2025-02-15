@@ -42,6 +42,7 @@ else % event_id is 'real_case'
 
     det_history = {};
     gt_history = {};
+    points_in_scan = {};
 
     cluster_points_history = {};
     clusters_history = {};
@@ -80,7 +81,7 @@ else % event_id is 'real_case'
 
         % time_hr = get_time_hour_UTC(ppi_name);
         % ts = [ts time_hr];
-        ts = [ts (tstamp-tstamp0)];
+        ts = [ts hours(tstamp-tstamp0)];
 
         % % find beginning of 24 to 0 UTC aliasing
         % if length(ts) >= 2 && (ts(end) - ts(end-1) < -12)
@@ -99,20 +100,35 @@ else % event_id is 'real_case'
         mask = nfout;
         x = xi2(mask)';
         y = yi2(mask)';
-        det_history{i} = [x; y];
-        gt_history{i} = evalbox;
+        gp = groups(mask)';
 
-        indexed_clusters = {};
-        for i_area = 1:length(areas)
-            curr_cluster = cluster_struct;
-            curr_cluster.area = areas(i_area);
-            curr_cluster.centroid = centroids(:,i_area);
-            curr_cluster.id = i_area;
-            indexed_clusters{i_area} = curr_cluster;
+        init_points = points_struct;
+        init_points.update_time = ts(i);
+        points_in_scan{i} = repmat(init_points, 1, length(x));
+        for p = 1:length(x)
+            points_in_scan{i}(p).pos = [x(p);y(p)];
+            points_in_scan{i}(p).cluster = gp(p);
         end
 
-        cluster_points_history{i} = groups(mask)';
-        clusters_history{i} = indexed_clusters;
+
+        % det_history{i} = [x; y];
+        gt_history{i} = evalbox;
+
+        clusters_history{i} = repmat(cluster_struct, 1, length(areas));
+        % indexed_clusters = {};
+        for i_area = 1:length(areas)
+            clusters_history{i}(i_area).area = areas(i_area);
+            clusters_history{i}(i_area).centroid = centroids(:,i_area);
+            clusters_history{i}(i_area).id = i_area;
+            % curr_cluster = cluster_struct;
+            % curr_cluster.area = areas(i_area);
+            % curr_cluster.centroid = centroids(:,i_area);
+            % curr_cluster.id = i_area;
+            % indexed_clusters{i_area} = curr_cluster;
+        end
+
+        % cluster_points_history{i} = groups(mask)';
+        % clusters_history{i} = indexed_clusters;
     end
 
     % % dealias time steps
