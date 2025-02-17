@@ -1,6 +1,6 @@
 clear; clc;
 close all;
-tic
+timeini = cputime;
 rng(101)
 
 % I/O options
@@ -34,7 +34,7 @@ exp_gf_speed_range = [4, 32]; % Hwang thesis: GF propagation speed is 5-20 mps (
 max_del_dirn = pi/16; %pi/4;
 
 % Forecast options
-anchor_t_index = 5;% 12;
+anchor_t_index = 4;% 12;
 
 for case_id = 1:length(case_names)
 
@@ -80,7 +80,8 @@ for case_id = 1:length(case_names)
     % Point tracking
     % [track_history, clusters_history] = one_to_one_point_correspondence(ts, det_history,cluster_points_history, track_history, max_age, max_del_dirn, points_struct, exp_gf_speed_range, clusters_history);
     [track_history, clusters_history] = one_to_one_point_correspondence(ts, points_in_scan, max_age, max_del_dirn, points_struct, exp_gf_speed_range, clusters_history);
-
+    es = cputime;
+    fprintf('Correspondence all :: Elapsed time: %.3f seconds\n', es-timeini);
     % Figures for initial detections
     title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
     fig_dir_tracks = fullfile(fig_dir,'hit_miss', case_name);
@@ -99,7 +100,8 @@ for case_id = 1:length(case_names)
 
     % False alarm mitigation
     track_history = cure_tracks(track_history, clusters_history, ts);
-
+    fprintf('Cure track :: Elapsed time: %.3f seconds\n', cputime-es);
+    es = cputime;
     % Figures for detections after false alarm mitigation
     title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
     fig_dir_tracks = fullfile(fig_dir,'hit_miss_cured', case_name);
@@ -145,25 +147,28 @@ for case_id = 1:length(case_names)
 
     % Forecasting
     close all;
-
-    [tracks_future, gt_future, ts_future, f_clusters_history] = forecast(ts, anchor_t_index, track_history, gt_history, points_struct, clusters_history);
-
-    points_forecast = tracks_future{1};
-    if isempty(points_forecast)
-        continue
+    for anchor_t_index = 3:length(track_history)-1
+        [tracks_future, gt_future, ts_future, f_clusters_history] = forecast(ts, anchor_t_index, track_history, gt_history, points_struct, clusters_history);
+    
+        points_forecast = tracks_future{1};
+        if isempty(points_forecast)
+            continue
+        end
+    
+        forecast_id = sprintf('%s_anchor_%d', case_name, anchor_t_index+1);
+    
+        % plot forecast
+        fig_dir_tracks = fullfile(fig_dir,'forecast_results',forecast_id);
+        title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
+        ppi_descs_future = ppi_descs(end-length(ts_future)+1:end);
+    
+        plot_tracks(tracks_future, gt_future, xi2, yi2, ts_future, 0, fig_axis,...
+            false, true, fig_dir_tracks,'hit-miss',title_suffix, f_clusters_history,...
+            R_roi, azdeg_roi,ppi_descs_future, station_ids, station_locs,anchor_t_index);
+    
+        close all;
+        fprintf('Forecast Product:: Elapsed time: %.3f seconds\n', cputime-es);
     end
-
-    forecast_id = sprintf('%s_anchor_%d', case_name, anchor_t_index+1);
-
-    % plot forecast
-    fig_dir_tracks = fullfile(fig_dir,'forecast_results',forecast_id);
-    title_suffix = sprintf("max. angle deviation: %4.1f degrees.", rad2deg(max_del_dirn));
-    ppi_descs_future = ppi_descs(end-length(ts_future)+1:end);
-
-    plot_tracks(tracks_future, gt_future, xi2, yi2, ts_future, 0, fig_axis,...
-        false, true, fig_dir_tracks,'hit-miss',title_suffix, f_clusters_history,...
-        R_roi, azdeg_roi,ppi_descs_future, station_ids, station_locs,anchor_t_index);
-
-    close all;
 end
-toc
+
+fprintf('Forecasting all:: Elapsed time: %.3f seconds\n', cputime - timeini);

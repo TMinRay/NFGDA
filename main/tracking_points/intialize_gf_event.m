@@ -60,21 +60,9 @@ else % event_id is 'real_case'
         outfile_pos = strsplit(ppi_id,'.');
         ppi_id_no_ext = outfile_pos{1};
         ppi_name = ppi_id(12:end);
-        % ppi_num = str2num(ppi_id_no_ext);
-        % ppi_name = ppi_names{ppi_num};
-        % disp(ppi_name);
         tstamp = datetime(ppi_name(5:12), 'InputFormat', 'yyyyMMdd', 'TimeZone', 'UTC') + ...
                 timeofday(datetime(ppi_name(14:19), 'InputFormat', 'HHmmss'));
-
         radar_id = ppi_name(1:4);
-        % yyyy = ppi_name(5:8);
-        % mm = ppi_name(9:10);
-        % dd = ppi_name(11:12);
-        % hh = ppi_name(14:15);
-        % minute = ppi_name(16:17);
-        % ss = ppi_name(18:19);
-
-        % ppi_desc = [radar_id ', ' mm '/' dd '/' yyyy ', ' hh ':' minute ':' ss ' UTC.'];
         ppi_desc = [radar_id ', ' char(tstamp, 'MM/dd/yyyy, HH:mm:ss z')];
         ppi_descs{end+1} = ppi_desc;
         disp(ppi_desc);
