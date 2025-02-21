@@ -123,9 +123,10 @@ def rot_score_back(a2,origindeg):
 
     center_indices = center_indices[mappxl,:].astype(int)
     oldidx = oldidx[mappxl,:].astype(int)
-
+    # print(center_indices.shape)
+    # print(a2[center_indices[:,0],center_indices[:,1]].shape)
     buf = np.zeros(a2.shape);
-    buf[oldidx]=a2[center_indices]
+    buf[oldidx[:,1],oldidx[:,0]]=a2[center_indices[:,0],center_indices[:,1]]
     return buf
 
 
@@ -185,7 +186,6 @@ orirot = diffz
 zoriginscore = np.zeros((*Cx.shape,rotnum))
 originscore = np.zeros((*Cx.shape,rotnum))
 for irot in range(rotnum):
-    # print('----------')
     indi = int(rotdegree*irot/angint)
     origindeg = rotbackrad*irot
     rotz = np.roll(oriz, shift=indi, axis=1)
@@ -195,7 +195,15 @@ for irot in range(rotnum):
         [15, 20, 3, 3, -1, 12, 4, -2, 3], \
         [0, 5, 5, 2,-1, 5, 3,-3, 1], \
         thrREF,10,(3*17+1*18))
-    zoriginscore[:,:,irot] = rot_score_back(ztotscore,origindeg)
+
+    zoriginscore[:,:,irot] = rot_score_back(ztotscore,-origindeg)
+    # if irot==3:
+    #     plt.pcolormesh(ztotscore)
+    #     plt.figure()
+    #     plt.pcolormesh(zoriginscore[:,:,irot])
+    #     plt.title(f'rot {origindeg}')
+    #     plt.show()
+    #     exit()
 
     roted = np.roll(orirot, shift=indi, axis=1)
     interpolator.values = roted.reshape(-1,1)
@@ -204,7 +212,7 @@ for irot in range(rotnum):
         [5,10,4,3,-2,9,4,-3,2], \
         [-10,5,5,2,-1,8,2,-3,1], \
         thrdREF, 8, (2*17+1*18))
-    originscore[:,:,irot] = rot_score_back(delztotscore,origindeg)
+    originscore[:,:,irot] = rot_score_back(delztotscore,-origindeg)
 
 toc = time.time()  # End timer
 print(f"Elapsed time: {toc - tic:.6f} seconds")
@@ -235,9 +243,6 @@ totscore = np.zeros(Cx.shape)
 totscore[c_indices[:,0],c_indices[:,1]] = clscore
 CELLline = medfilt2d(totscore, kernel_size=11)
 
-
-# CELLline=medfilt2(totscore,[11 11]);
-# exit()
 a2 = CELLline
 
 center_indices = np.argwhere(a2>cellcsrthresh)
@@ -249,9 +254,6 @@ cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
 center_indices = center_indices[cbr<1,:]
 cidx = (c_indices[np.newaxis,:,:] + Celldpw).astype(int)
 
-# cbox = cbox[:,cbr<1]
-# c_indices = c_indices[cbr>cbcellthrsh,:]
-
 a2[cidx[:,:,0],cidx[:,:,1]] = 1
 widecellz = a2>0.5
 
@@ -261,12 +263,13 @@ pbeta = (linez+linedelz)/2
 pbeta[np.isnan(PARITP[:,:,0])] = np.nan
 beta = pbeta-widecellz
 beta[beta<0] = 0
-plt.pcolormesh(linez)
-plt.figure()
-plt.pcolormesh(linedelz)
-plt.figure()
-plt.pcolormesh(widecellz)
-plt.figure()
-plt.pcolormesh(beta)
+# plt.pcolormesh(linez)
+# plt.figure()
+# plt.pcolormesh(linedelz)
+# plt.figure()
+# plt.pcolormesh(widecellz)
+# plt.figure()
+# np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta)
+plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
 # plt.pcolor(PARITP[:,:,0])
 plt.show()
