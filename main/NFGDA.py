@@ -28,17 +28,15 @@ s2ydel = s2ynum[1]-s2ynum[0]
 s2g = s2ydel/s2xdel
 s2gc = s2ynum[1]-s2g*s2xnum[1]
 
-datacx = scipy.io.loadmat('../IMG/tmpCELLdatax.mat')
-datacy = scipy.io.loadmat('../IMG/tmpCELLdatay.mat')
-Celldp = np.moveaxis(np.array([datacy['datacy'],datacx['datacx']]),[0,1,2],[2,0,1])
-# Celldp = np.moveaxis(np.array([datacx['datacx'],datacy['datacy']]),[0,1,2],[2,0,1])
-np.save("Celldp.npy", Celldp)
+# datacx = scipy.io.loadmat('../IMG/tmpCELLdatax.mat')
+# datacy = scipy.io.loadmat('../IMG/tmpCELLdatay.mat')
+# Celldp = np.moveaxis(np.array([datacy['datacy'],datacx['datacx']]),[0,1,2],[2,0,1])
+# np.save("Celldp.npy", Celldp)
 Celldp = np.load("Celldp.npy")
-datacx = scipy.io.loadmat('../IMG/tmpCELLdatax2.mat')
-datacy = scipy.io.loadmat('../IMG/tmpCELLdatay2.mat')
-Celldpw = np.moveaxis(np.array([datacy['datacy2'],datacx['datacx2']]),[0,1,2],[2,0,1])
-# Celldpw = np.moveaxis(np.array([datacx['datacx2'],datacy['datacy2']]),[0,1,2],[2,0,1])
-np.save("Celldpw.npy", Celldpw)
+# datacx = scipy.io.loadmat('../IMG/tmpCELLdatax2.mat')
+# datacy = scipy.io.loadmat('../IMG/tmpCELLdatay2.mat')
+# Celldpw = np.moveaxis(np.array([datacy['datacy2'],datacx['datacx2']]),[0,1,2],[2,0,1])
+# np.save("Celldpw.npy", Celldpw)
 Celldpw = np.load("Celldpw.npy")
 # exit()
 
@@ -138,33 +136,50 @@ RegPolarX = RegR[:,np.newaxis] * np.sin(RegAZ[np.newaxis,:])
 RegPolarY = RegR[:,np.newaxis] * np.cos(RegAZ[np.newaxis,:])
 Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
 
-mat_data0 = scipy.io.loadmat('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.mat')
-mat_data = scipy.io.loadmat('../mat/POLAR/KABX20200705_21/polar_04_KABX20200705_213306_V06.mat')
-z1 = mat_data['PARROT'][:,:,0]
-z0 = mat_data0['PARROT'][:,:,0]
+# mat_data0 = scipy.io.loadmat('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.mat')
+# mat_data = scipy.io.loadmat('../mat/POLAR/KABX20200705_21/polar_04_KABX20200705_213306_V06.mat')
+# PARROT0 = mat_data0['PARROT']
+# PARROT = mat_data['PARROT']
+# print(PARROT.flags)
+PARROT0 = np.load('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.npy')
+PARROT = np.load('../mat/POLAR/KABX20200705_21/polar_04_KABX20200705_213306_V06.npy')
+# print(PARROT.flags)
+# print(PARROT.flags['C_CONTIGUOUS'])
+# print(PARROT.shape)
+# print(type(PARROT))
+# exit()
+z1 = PARROT[:,:,0].copy()
+z0 = PARROT0[:,:,0].copy()
 z1[np.isnan(z1)] = 0
 z0[np.isnan(z0)] = 0
 diffz = z1-z0
 
 tic = time.time()  # Start timer
-PARITP = np.zeros((*Cx.shape,mat_data['PARROT'].shape[-1]))
-interpolator = LinearNDInterpolator((RegPolarX[1:,:].reshape(-1),RegPolarY[1:,:].reshape(-1)), mat_data['PARROT'][1:,:,0].reshape(-1))
-
-# for iv in range(mat_data['PARROT'].shape[-1]):
+PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
+# print(np.min(PARROT[:,:,0]))
+# print(np.max(PARROT[:,:,0]))
+# # plt.pcolormesh(np.isnan(PARROT[:,:,0]))
+# plt.pcolormesh(PARROT[:,:,0])
+# plt.show()
+# exit()
+# interpolator = LinearNDInterpolator((RegPolarX[1:,:].reshape(-1),RegPolarY[1:,:].reshape(-1)), PARROT[1:,:,0].reshape(-1))
+interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT[:,:,0].reshape(-1))
+# for iv in range(PARROT.shape[-1]):
 for iv in [0,1,3,4,5]:
 # for iv in [1]:
     if iv == 3:
         sdphi=np.zeros((*RegPolarX.shape,5))
-        phi = mat_data['PARROT'][:,:,iv]
+        phi = PARROT[:,:,iv]
         phi[phi<0] = np.nan
         phi[phi>360] = np.nan
         # NR = phi.shape[0]
         # for displaceR in range(-2,3):
         #     sdphi[4:-2,:,displaceR+2] = phi[4+displaceR:NR-2+displaceR,:]
         sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
-        interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1)[1:,:].reshape(-1,1)
+        interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
     else:
-        interpolator.values = mat_data['PARROT'][1:,:,iv].reshape(-1,1)
+        # interpolator.values = PARROT[1:,:,iv].reshape(-1,1)
+        interpolator.values = PARROT[:,:,iv].reshape(-1,1)
     PARITP[:,:,iv] = interpolator(Cx, Cy)
 toc = time.time()  # End timer
 print(f"Elapsed time: {toc - tic:.6f} seconds")
@@ -181,7 +196,7 @@ stda = np.zeros(Cx.shape)
 stda[1:-1,1:-1] = SD_buf
 scipy.io.savemat('../mat/pystda.mat', {"stda": stda})
 
-oriz = mat_data['PARROT'][:,:,0]
+oriz = PARROT[:,:,0]
 orirot = diffz
 zoriginscore = np.zeros((*Cx.shape,rotnum))
 originscore = np.zeros((*Cx.shape,rotnum))
@@ -213,9 +228,6 @@ for irot in range(rotnum):
         [-10,5,5,2,-1,8,2,-3,1], \
         thrdREF, 8, (2*17+1*18))
     originscore[:,:,irot] = rot_score_back(delztotscore,-origindeg)
-
-toc = time.time()  # End timer
-print(f"Elapsed time: {toc - tic:.6f} seconds")
 
 
 linez = np.max(zoriginscore,2)
@@ -263,6 +275,29 @@ pbeta = (linez+linedelz)/2
 pbeta[np.isnan(PARITP[:,:,0])] = np.nan
 beta = pbeta-widecellz
 beta[beta<0] = 0
+
+
+# %%%%%%%%%%%%%%      NF06_calc_6variables_preprocessing
+inputNF = np.zeros((*Cx.shape,6))
+    # % inputNF(:,:,1)=PARITP(:,:,1);
+    # % inputNF(:,:,2)=beta;
+    # % inputNF(:,:,3)=PARITP(:,:,6);
+    # % inputNF(:,:,4)=PARITP(:,:,5);
+    # % inputNF(:,:,5)=stda(:,:,2);
+    # % inputNF(:,:,6)=PARITP(:,:,4);
+
+    # %%%%%%%%%%%%%%      direct layout for fis input
+inputNF[:,:,0] = beta
+inputNF[:,:,1] = PARITP[:,:,0]
+inputNF[:,:,2] = PARITP[:,:,4]
+inputNF[:,:,3] = PARITP[:,:,5]
+inputNF[:,:,4] = stda
+inputNF[:,:,5] = PARITP[:,:,3]
+
+pnan = np.isnan(inputNF)
+pnansum = np.max(pnan,2)
+inputNF[pnansum,:] = np.nan
+
 # plt.pcolormesh(linez)
 # plt.figure()
 # plt.pcolormesh(linedelz)
@@ -270,6 +305,13 @@ beta[beta<0] = 0
 # plt.pcolormesh(widecellz)
 # plt.figure()
 # np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta)
-plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
+# plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
+toc = time.time()  # End timer
+print(f"Elapsed time: {toc - tic:.6f} seconds")
+plt.pcolormesh((beta),cmap='jet')
+plt.colorbar()
+# plt.figure()
+# plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
+# plt.pcolormesh(np.isnan(PARITP[:,:,0]))
 # plt.pcolor(PARITP[:,:,0])
 plt.show()

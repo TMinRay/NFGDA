@@ -99,6 +99,8 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
         output_path = os.path.join(output_folder, mat_file)
 
+        py_path = os.path.join(output_folder, mat_file[:-4]+'.npy')
+
         # read l2 data
         radar_obj = pyart.io.read_nexrad_archive(os.path.join(v06_folder, l2_file))
 
@@ -150,6 +152,7 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
             print()
         print()
         scipy.io.savemat(output_path, {"PARROT": PARROT})
+        np.save(py_path, np.asfortranarray(PARROT))
 
     return
 
