@@ -58,8 +58,15 @@ end
 nccx=numel(ccx);
 disccx = reshape(disccx,1,17,17);
 disccy = reshape(disccy,1,17,17);
+
+disccx = zeros(1,17,17);
+disccy = zeros(1,17,17);
+for i =1:17
+disccx(:,i,:)=ceil([-8:8]*cosd(90/8*(i-1)))
+disccy(:,i,:)=ceil([-8:8]*sind(90/8*(i-1)))
+end
 v6m_path = fullfile(matPATH,'POLAR',case_name);
-v6m_list = {dir(fullfile(v6m_path,'polar*')).name};
+v6m_list = {dir(fullfile(v6m_path,'polar*mat')).name};
 % v6m_list([1,2]) = [];
 PUTDAT = case_name;
 % for cindex=1:numel(ttable(:,1));
@@ -278,6 +285,7 @@ for m=startm:endm
 
 %%%%%%%%%%%%%%      NF10_evalfuzzy_and_skel
     dINPUT=reshape(inputNF(:,:,1:6),401*401,6);
+    % [incoef,outcoef,rulelogic] = fis2python(fuzzGST,'NF00ref_YHWANG_fis4python.mat');
     PREGST=evalfis(dINPUT,fuzzGST);
     hGST=reshape(PREGST,401,401);
     numthr=0.24;
