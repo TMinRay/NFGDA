@@ -1,11 +1,21 @@
+import time
+tic = time.time()
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 from scipy.interpolate import LinearNDInterpolator
 import scipy.io
 from scipy.signal import medfilt2d
-import time
+from scipy.ndimage import gaussian_filter
+from skimage.morphology import skeletonize, disk, binary_dilation, remove_small_objects
 import matplotlib.pyplot as plt
+import glob
+import sys
+import os
 
+case_name = 'KABX20200705_21'
+export_preds_dir = './tracking_points/nf_preds/'
+exp_preds_event = export_preds_dir + case_name
+os.makedirs(exp_preds_event,exist_ok=True)
 angint = 0.5
 rotdegree = 180/9
 rotnum = int(np.round(180/rotdegree))
@@ -18,6 +28,7 @@ cellcsrthresh=0.5
 crsize = 5
 cellINT = crsize + 2
 widecellINT =crsize+4
+avgINT = 8
 
 s2xnum = [10, 15]
 s2ynum = [-3, 1]
@@ -51,6 +62,23 @@ datasy = np.array([*np.arange(-7,0,2),0,*np.arange(1,8,2),*np.arange(-7,0,2),0,*
 datasx = np.array([-4*np.ones((9)),4*np.ones((9))]).reshape(1,-1)
 datas = np.swapaxes(np.array([datasy,datasx]),0,2)
 # datas = np.swapaxes(np.array([datasx,datasy]),0,2)
+
+mvdiscx = np.zeros((17,17))
+mvdiscy = np.zeros((17,17))
+for ix in range(17):
+    mvdiscx[ix,:]=np.ceil(np.arange(-8,9)*np.sin(np.pi/2/8*(ix)))
+    mvdiscy[ix,:]=np.ceil(np.arange(-8,9)*np.cos(np.pi/2/8*(ix)))
+nccx = mvdiscx.shape[0]
+mvdisc = np.swapaxes(np.array([mvdiscy,mvdiscx]),0,2)[:,:,np.newaxis,:]
+
+# plt.plot(mvdisc[:,:4,0,0,1],mvdisc[:,:4,0,0,0])
+# plt.show()
+
+RegR = np.arange(0,400)/4
+RegAZ = np.arange(0,360,0.5)*np.pi/180
+RegPolarX = RegR[:,np.newaxis] * np.sin(RegAZ[np.newaxis,:])
+RegPolarY = RegR[:,np.newaxis] * np.cos(RegAZ[np.newaxis,:])
+Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
 
 def gaussmf(x, sigma, c):
     return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
@@ -104,16 +132,19 @@ def gen_tot_score(a2,c_para,s_para,thrREF,numINT,scorediv):
     return scoremt
 
 def rot_score_back(a2,origindeg):
-    backprocess = np.array([[np.cos(origindeg),np.sin(origindeg)], \
-                            [-np.sin(origindeg),np.cos(origindeg)]])
+    # backprocess = np.array([[np.cos(origindeg),np.sin(origindeg)], \
+    #                         [-np.sin(origindeg),np.cos(origindeg)]])
+    backprocess = np.array([[np.cos(origindeg),-np.sin(origindeg)], \
+                            [np.sin(origindeg),np.cos(origindeg)]])
     center_indices = np.argwhere(a2>0)
+    # center_indices[points,coord] ::  coord = [y x]
     rotcord = center_indices/2 - 100
-    xyv = np.zeros(rotcord.shape)
-    xyv[:,0] = rotcord[:,1]
-    xyv[:,1] = rotcord[:,0]
+    # xyv = np.zeros(rotcord.shape)
+    # xyv[:,0] = rotcord[:,1]
+    # xyv[:,1] = rotcord[:,0]
     # print(rotcord.shape)
-    # oldcord = np.matmul(backprocess,rotcord[:,:,np.newaxis])
-    oldcord = np.matmul(backprocess,xyv[:,:,np.newaxis])
+    oldcord = np.matmul(backprocess,rotcord[:,:,np.newaxis])
+    # oldcord = np.matmul(backprocess,xyv[:,:,np.newaxis])
     oldidx = np.squeeze( np.round((oldcord+100)*2), axis=-1 )
 
     mappxl = np.logical_and( oldidx[:,0]>=0, np.logical_and(oldidx[:,0]<a2.shape[0],\
@@ -124,194 +155,257 @@ def rot_score_back(a2,origindeg):
     # print(center_indices.shape)
     # print(a2[center_indices[:,0],center_indices[:,1]].shape)
     buf = np.zeros(a2.shape);
-    buf[oldidx[:,1],oldidx[:,0]]=a2[center_indices[:,0],center_indices[:,1]]
+    # buf[oldidx[:,1],oldidx[:,0]]=a2[center_indices[:,0],center_indices[:,1]]
+    buf[oldidx[:,0],oldidx[:,1]]=a2[center_indices[:,0],center_indices[:,1]]
     return buf
 
+def probor(ar):
+    buf = np.zeros(ar.shape[:-1])
+    for iv in range(ar.shape[-1]):
+        buf = buf + ar[...,iv] - buf * ar[...,iv]
+    return buf
+
+def post_moving_avg(a2):
+    center_indices = np.argwhere(a2>0)
+
+    c_indices = clean_indices(center_indices, a2.shape, avgINT)
+    cidx = (c_indices[np.newaxis,np.newaxis,...] + mvdisc).astype(int)
+    cbox = a2[cidx[...,0],cidx[...,1]]
+
+    # cbr = np.sum(cbox>thrREF,0)/datacx.size
+    # cbox = cbox[:,cbr>0.5]
+    cbr = np.sum(cbox>0,axis=0)/nccx
+    validcenter = np.max(cbr>0.1,axis=0)
+    cbox = cbox[:,:,validcenter,...]
+    mc = np.nanmean(cbox,axis=0)
+    mc[np.logical_not(cbr>0.1)]=0
+    s_indices = c_indices[validcenter,:]
+    result = np.zeros(a2.shape)
+    result[s_indices[:,0],s_indices[:,1]] = np.max(mc,axis=0)
+    return result
+
+class NFModule:
+    def __init__(self,fismat):
+        buf = scipy.io.loadmat(fismat)
+        # [1,1,rule,vars]
+        self.c = buf['incoef'][:,1,:][np.newaxis,np.newaxis,...]
+        self.sig = buf['incoef'][:,0,:][np.newaxis,np.newaxis,...]
+        self.outcoef = buf['outcoef'][np.newaxis,np.newaxis,...]
+        self.rulew = buf['rulelogic'][:,0]
+        self.rulecon = buf['rulelogic'][:,1]
+    def eval_fis(self,pxls):
+        # pxls[x,y,vars] -> [x,y,rule,vars]
+        x = pxls[:,:,np.newaxis,:]
+        irr = np.exp(-(x-self.c)**2/(2*self.sig**2))
+        # w[x,y,rule]
+        w = np.zeros(irr.shape[:-1])
+        for ir in range(self.rulecon.size):
+            if self.rulecon[ir]==1:
+                w[...,ir] = np.prod(irr[...,ir,:],axis=-1)
+            else:
+                w[...,ir] = probor(irr[...,ir,:])
+        sw = np.sum(w,axis=-1)
+        pad_window = tuple([(0,0),] * (x.ndim-1) + [(0,1),])
+        orr = np.pad(x, pad_width = pad_window, mode='constant', constant_values=1)
+        # orr = [x,ones(size(x,1),1)];
+        unImpSugRuleOut = np.sum(orr*self.outcoef,axis=-1)
+        return np.sum( unImpSugRuleOut*w, axis=-1 )/sw
+
+fuzzGST = NFModule('NF00ref_YHWANG_fis4python.mat')
+v6m_path = os.path.join('../mat/','POLAR',case_name)
+v6m_list = glob.glob(v6m_path + "/polar*npy")
+# PARROT0 = np.load('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.npy')
+PARROT0 = np.load(v6m_list[0])
+interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT0[:,:,0].reshape(-1))
+for ifn in v6m_list[1:5]:
+    PARROT = np.load(ifn)
+
+    z1 = PARROT[:,:,0].copy()
+    z0 = PARROT0[:,:,0].copy()
+    z1[np.isnan(z1)] = 0
+    z0[np.isnan(z0)] = 0
+    diffz = z1-z0
+
+    # tic = time.time()  # Start timer
+    PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
+    # print(np.min(PARROT[:,:,0]))
+    # print(np.max(PARROT[:,:,0]))
+    # # plt.pcolormesh(np.isnan(PARROT[:,:,0]))
+    # plt.pcolormesh(PARROT[:,:,0])
+    # plt.show()
+    # exit()
+    # interpolator = LinearNDInterpolator((RegPolarX[1:,:].reshape(-1),RegPolarY[1:,:].reshape(-1)), PARROT[1:,:,0].reshape(-1))
+    
+    # for iv in range(PARROT.shape[-1]):
+    for iv in [0,1,3,4,5]:
+    # for iv in [1]:
+        if iv == 3:
+            sdphi=np.zeros((*RegPolarX.shape,5))
+            phi = PARROT[:,:,iv]
+            phi[phi<0] = np.nan
+            phi[phi>360] = np.nan
+            # NR = phi.shape[0]
+            # for displaceR in range(-2,3):
+            #     sdphi[4:-2,:,displaceR+2] = phi[4+displaceR:NR-2+displaceR,:]
+            sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
+            interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
+        else:
+            # interpolator.values = PARROT[1:,:,iv].reshape(-1,1)
+            interpolator.values = PARROT[:,:,iv].reshape(-1,1)
+        PARITP[:,:,iv] = interpolator(Cx, Cy)
+    # toc = time.time()  # End timer
+    # print(f"Elapsed time: {toc - tic:.6f} seconds")
+    scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
+
+    # tic = time.time()  # Start timer
+
+    V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
+    V_window = V_window.reshape((*V_window.shape[:2],-1))
+    cbr = np.sum(~np.isnan(V_window),axis = 2)/9
+    SD_buf = np.zeros(V_window.shape[:2])
+    SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
+    stda = np.zeros(Cx.shape)
+    stda[1:-1,1:-1] = SD_buf
+    scipy.io.savemat('../mat/pystda.mat', {"stda": stda})
+
+    oriz = PARROT[:,:,0]
+    orirot = diffz
+    zoriginscore = np.zeros((*Cx.shape,rotnum))
+    originscore = np.zeros((*Cx.shape,rotnum))
+    for irot in range(rotnum):
+        indi = int(rotdegree*irot/angint)
+        origindeg = rotbackrad*irot
+        rotz = np.roll(oriz, shift=indi, axis=1)
+        interpolator.values = rotz.reshape(-1,1)
+        rotgz = interpolator(Cx, Cy)
+        ztotscore = gen_tot_score(rotgz, \
+            [15, 20, 3, 3, -1, 12, 4, -2, 3], \
+            [0, 5, 5, 2,-1, 5, 3,-3, 1], \
+            thrREF,10,(3*17+1*18))
+
+        zoriginscore[:,:,irot] = rot_score_back(ztotscore,-origindeg)
+        # if irot==3:
+        #     plt.pcolormesh(ztotscore)
+        #     plt.figure()
+        #     plt.pcolormesh(zoriginscore[:,:,irot])
+        #     plt.title(f'rot {origindeg}')
+        #     plt.show()
+        #     exit()
+
+        roted = np.roll(orirot, shift=indi, axis=1)
+        interpolator.values = roted.reshape(-1,1)
+        rotitp = interpolator(Cx, Cy)
+        delztotscore = gen_tot_score(rotitp, \
+            [5,10,4,3,-2,9,4,-3,2], \
+            [-10,5,5,2,-1,8,2,-3,1], \
+            thrdREF, 8, (2*17+1*18))
+        originscore[:,:,irot] = rot_score_back(delztotscore,-origindeg)
 
 
+    linez = np.max(zoriginscore,2)
+    linedelz = np.max(originscore,2)
 
-RegR = np.arange(0,400)/4
-RegAZ = np.arange(0,360,0.5)*np.pi/180
-RegPolarX = RegR[:,np.newaxis] * np.sin(RegAZ[np.newaxis,:])
-RegPolarY = RegR[:,np.newaxis] * np.cos(RegAZ[np.newaxis,:])
-Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
+    a2 = PARITP[:,:,0]
 
-# mat_data0 = scipy.io.loadmat('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.mat')
-# mat_data = scipy.io.loadmat('../mat/POLAR/KABX20200705_21/polar_04_KABX20200705_213306_V06.mat')
-# PARROT0 = mat_data0['PARROT']
-# PARROT = mat_data['PARROT']
-# print(PARROT.flags)
-PARROT0 = np.load('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.npy')
-PARROT = np.load('../mat/POLAR/KABX20200705_21/polar_04_KABX20200705_213306_V06.npy')
-# print(PARROT.flags)
-# print(PARROT.flags['C_CONTIGUOUS'])
-# print(PARROT.shape)
-# print(type(PARROT))
-# exit()
-z1 = PARROT[:,:,0].copy()
-z0 = PARROT0[:,:,0].copy()
-z1[np.isnan(z1)] = 0
-z0[np.isnan(z0)] = 0
-diffz = z1-z0
+    center_indices = np.argwhere(a2>cellthresh)
+    c_indices = clean_indices(center_indices, a2.shape, cellINT)
 
-tic = time.time()  # Start timer
-PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
-# print(np.min(PARROT[:,:,0]))
-# print(np.max(PARROT[:,:,0]))
-# # plt.pcolormesh(np.isnan(PARROT[:,:,0]))
-# plt.pcolormesh(PARROT[:,:,0])
+    cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+    cbox = a2[cidx[:,:,0],cidx[:,:,1]]
+    cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
+    cbox = cbox[:,cbr>cbcellthrsh]
+    c_indices = c_indices[cbr>cbcellthrsh,:]
+
+    llscore = np.zeros(cbox.shape)
+    llscore[cbox<=s2xnum[0]] = s2ynum[0]
+    pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
+    llscore[pp] = s2g*cbox[pp]+s2gc
+    llscore[cbox>=s2xnum[1]] = s2ynum[1]
+    clscore = np.nansum(llscore,0)/Celldp.shape[0]
+    clscore = clscore/Celldp.shape[0]
+    totscore = np.zeros(Cx.shape)
+    totscore[c_indices[:,0],c_indices[:,1]] = clscore
+    CELLline = medfilt2d(totscore, kernel_size=11)
+
+    a2 = CELLline
+
+    center_indices = np.argwhere(a2>cellcsrthresh)
+    c_indices = clean_indices(center_indices, a2.shape, widecellINT)
+
+    cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+    cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
+    cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
+    center_indices = center_indices[cbr<1,:]
+    cidx = (c_indices[np.newaxis,:,:] + Celldpw).astype(int)
+
+    a2[cidx[:,:,0],cidx[:,:,1]] = 1
+    widecellz = a2>0.5
+
+
+    # # %%%%%%%%%%%%%%      ../IMG/exe_3_img_exe.m
+    pbeta = (linez+linedelz)/2
+    pbeta[np.isnan(PARITP[:,:,0])] = np.nan
+    beta = pbeta-widecellz
+    beta[beta<0] = 0
+
+
+    # %%%%%%%%%%%%%%      NF06_calc_6variables_preprocessing
+    inputNF = np.zeros((*Cx.shape,6))
+        # % inputNF(:,:,1)=PARITP(:,:,1);
+        # % inputNF(:,:,2)=beta;
+        # % inputNF(:,:,3)=PARITP(:,:,6);
+        # % inputNF(:,:,4)=PARITP(:,:,5);
+        # % inputNF(:,:,5)=stda(:,:,2);
+        # % inputNF(:,:,6)=PARITP(:,:,4);
+
+        # %%%%%%%%%%%%%%      direct layout for fis input
+    inputNF[:,:,0] = beta
+    inputNF[:,:,1] = PARITP[:,:,0]
+    inputNF[:,:,2] = PARITP[:,:,4]
+    inputNF[:,:,3] = PARITP[:,:,5]
+    inputNF[:,:,4] = stda
+    inputNF[:,:,5] = PARITP[:,:,3]
+
+    pnan = np.isnan(inputNF)
+    pnansum = np.max(pnan,2)
+    inputNF[pnansum,:] = np.nan
+
+    hGST = fuzzGST.eval_fis(inputNF)
+    hh = hGST>=0.24
+    hGST = medfilt2d(hh.astype(float), kernel_size=3)
+
+    # smoothedhGST = gaussian_filter(hGST, sigma=1, mode='nearest')
+
+    # skel_nfout = skeletonize(smoothedhGST > 0.3)
+
+    binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
+    pskel_nfout = binary_dilation(binary_mask, disk(5))
+    skel_nfout = skeletonize(pskel_nfout*hh)
+    skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
+    PARROT0 = PARROT
+    matout = os.path.join(exp_preds_event,'pynf_pred'+os.path.basename(ifn)[5:-3]+'mat')
+    scipy.io.savemat(matout, {"skel_nfout2": skel_nfout2})
+
+toc = time.time()  # End timer
+print(f"Elapsed time: {toc - tic:.6f} seconds")
+# plt.pcolormesh((beta),cmap='jet')
+# # plt.pcolormesh(hGST>=0.24)
+# plt.pcolormesh(skel_nfout)
+
+# plt.colorbar()
+# plt.figure()
+
+# plt.pcolormesh(hh)
+
+# plt.colorbar()
+
+# plt.figure()
+
+# plt.pcolormesh(skel_nfout2)
+
+# plt.colorbar()
+# # plt.figure()
+# # plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
+# # plt.pcolormesh(np.isnan(PARITP[:,:,0]))
+# # plt.pcolor(PARITP[:,:,0])
 # plt.show()
-# exit()
-# interpolator = LinearNDInterpolator((RegPolarX[1:,:].reshape(-1),RegPolarY[1:,:].reshape(-1)), PARROT[1:,:,0].reshape(-1))
-interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT[:,:,0].reshape(-1))
-# for iv in range(PARROT.shape[-1]):
-for iv in [0,1,3,4,5]:
-# for iv in [1]:
-    if iv == 3:
-        sdphi=np.zeros((*RegPolarX.shape,5))
-        phi = PARROT[:,:,iv]
-        phi[phi<0] = np.nan
-        phi[phi>360] = np.nan
-        # NR = phi.shape[0]
-        # for displaceR in range(-2,3):
-        #     sdphi[4:-2,:,displaceR+2] = phi[4+displaceR:NR-2+displaceR,:]
-        sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
-        interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
-    else:
-        # interpolator.values = PARROT[1:,:,iv].reshape(-1,1)
-        interpolator.values = PARROT[:,:,iv].reshape(-1,1)
-    PARITP[:,:,iv] = interpolator(Cx, Cy)
-toc = time.time()  # End timer
-print(f"Elapsed time: {toc - tic:.6f} seconds")
-scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
-
-tic = time.time()  # Start timer
-
-V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
-V_window = V_window.reshape((*V_window.shape[:2],-1))
-cbr = np.sum(~np.isnan(V_window),axis = 2)/9
-SD_buf = np.zeros(V_window.shape[:2])
-SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
-stda = np.zeros(Cx.shape)
-stda[1:-1,1:-1] = SD_buf
-scipy.io.savemat('../mat/pystda.mat', {"stda": stda})
-
-oriz = PARROT[:,:,0]
-orirot = diffz
-zoriginscore = np.zeros((*Cx.shape,rotnum))
-originscore = np.zeros((*Cx.shape,rotnum))
-for irot in range(rotnum):
-    indi = int(rotdegree*irot/angint)
-    origindeg = rotbackrad*irot
-    rotz = np.roll(oriz, shift=indi, axis=1)
-    interpolator.values = rotz.reshape(-1,1)
-    rotgz = interpolator(Cx, Cy)
-    ztotscore = gen_tot_score(rotgz, \
-        [15, 20, 3, 3, -1, 12, 4, -2, 3], \
-        [0, 5, 5, 2,-1, 5, 3,-3, 1], \
-        thrREF,10,(3*17+1*18))
-
-    zoriginscore[:,:,irot] = rot_score_back(ztotscore,-origindeg)
-    # if irot==3:
-    #     plt.pcolormesh(ztotscore)
-    #     plt.figure()
-    #     plt.pcolormesh(zoriginscore[:,:,irot])
-    #     plt.title(f'rot {origindeg}')
-    #     plt.show()
-    #     exit()
-
-    roted = np.roll(orirot, shift=indi, axis=1)
-    interpolator.values = roted.reshape(-1,1)
-    rotitp = interpolator(Cx, Cy)
-    delztotscore = gen_tot_score(rotitp, \
-        [5,10,4,3,-2,9,4,-3,2], \
-        [-10,5,5,2,-1,8,2,-3,1], \
-        thrdREF, 8, (2*17+1*18))
-    originscore[:,:,irot] = rot_score_back(delztotscore,-origindeg)
-
-
-linez = np.max(zoriginscore,2)
-linedelz = np.max(originscore,2)
-
-a2 = PARITP[:,:,0]
-
-center_indices = np.argwhere(a2>cellthresh)
-c_indices = clean_indices(center_indices, a2.shape, cellINT)
-
-cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
-cbox = a2[cidx[:,:,0],cidx[:,:,1]]
-cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
-cbox = cbox[:,cbr>cbcellthrsh]
-c_indices = c_indices[cbr>cbcellthrsh,:]
-
-llscore = np.zeros(cbox.shape)
-llscore[cbox<=s2xnum[0]] = s2ynum[0]
-pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
-llscore[pp] = s2g*cbox[pp]+s2gc
-llscore[cbox>=s2xnum[1]] = s2ynum[1]
-clscore = np.nansum(llscore,0)/Celldp.shape[0]
-clscore = clscore/Celldp.shape[0]
-totscore = np.zeros(Cx.shape)
-totscore[c_indices[:,0],c_indices[:,1]] = clscore
-CELLline = medfilt2d(totscore, kernel_size=11)
-
-a2 = CELLline
-
-center_indices = np.argwhere(a2>cellcsrthresh)
-c_indices = clean_indices(center_indices, a2.shape, widecellINT)
-
-cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
-cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
-cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
-center_indices = center_indices[cbr<1,:]
-cidx = (c_indices[np.newaxis,:,:] + Celldpw).astype(int)
-
-a2[cidx[:,:,0],cidx[:,:,1]] = 1
-widecellz = a2>0.5
-
-
-# # %%%%%%%%%%%%%%      ../IMG/exe_3_img_exe.m
-pbeta = (linez+linedelz)/2
-pbeta[np.isnan(PARITP[:,:,0])] = np.nan
-beta = pbeta-widecellz
-beta[beta<0] = 0
-
-
-# %%%%%%%%%%%%%%      NF06_calc_6variables_preprocessing
-inputNF = np.zeros((*Cx.shape,6))
-    # % inputNF(:,:,1)=PARITP(:,:,1);
-    # % inputNF(:,:,2)=beta;
-    # % inputNF(:,:,3)=PARITP(:,:,6);
-    # % inputNF(:,:,4)=PARITP(:,:,5);
-    # % inputNF(:,:,5)=stda(:,:,2);
-    # % inputNF(:,:,6)=PARITP(:,:,4);
-
-    # %%%%%%%%%%%%%%      direct layout for fis input
-inputNF[:,:,0] = beta
-inputNF[:,:,1] = PARITP[:,:,0]
-inputNF[:,:,2] = PARITP[:,:,4]
-inputNF[:,:,3] = PARITP[:,:,5]
-inputNF[:,:,4] = stda
-inputNF[:,:,5] = PARITP[:,:,3]
-
-pnan = np.isnan(inputNF)
-pnansum = np.max(pnan,2)
-inputNF[pnansum,:] = np.nan
-
-# plt.pcolormesh(linez)
-# plt.figure()
-# plt.pcolormesh(linedelz)
-# plt.figure()
-# plt.pcolormesh(widecellz)
-# plt.figure()
-# np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta)
-# plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
-toc = time.time()  # End timer
-print(f"Elapsed time: {toc - tic:.6f} seconds")
-plt.pcolormesh((beta),cmap='jet')
-plt.colorbar()
-# plt.figure()
-# plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
-# plt.pcolormesh(np.isnan(PARITP[:,:,0]))
-# plt.pcolor(PARITP[:,:,0])
-plt.show()
