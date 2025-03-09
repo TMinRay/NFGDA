@@ -211,12 +211,92 @@ class NFModule:
         unImpSugRuleOut = np.sum(orr*self.outcoef,axis=-1)
         return np.sum( unImpSugRuleOut*w, axis=-1 )/sw
 
+# def findclosest(arr, target):
+#     return np.argmin(np.abs(arr-target))
+
+# class GFSpace:
+#     def __init__(self, x, y, nfout, radius):
+#         self.gf = nfout.copy()
+#         self.radius = radius
+#         self.x = x
+#         self.y = y
+#         self.groups = np.full(self.gf.shape, np.nan)
+#         self.n_groups = 0
+#         self.areas = []
+#         self.centroids = []
+#         for ix in range(self.gf.shape[0]):
+#             for iy in range(self.gf.shape[1]):
+#                 if self.gf[ix,iy]:
+#                     area, cum_pos = self.dfs(ix, iy)
+#                     self.areas.append(area)
+#                     self.centroids.append(cum_pos/area)
+#                     self.n_groups += 1
+
+#     def dfs(self, r, c):
+#         print(r, c)
+#         self.groups[r,c] = self.n_groups
+#         self.gf[r,c] = False
+#         curr_X = self.x[r,c]
+#         curr_Y = self.y[r,c]
+#         positions_sum = np.array([curr_X,curr_Y])
+#         area = 1
+#         c_low = findclosest(self.x[0,:], curr_X - self.radius/2)
+#         c_high = findclosest(self.x[0,:], curr_X + self.radius/2)
+#         r_low = findclosest(self.y[:,0], curr_Y - self.radius/2)
+#         r_high = findclosest(self.y[:,0], curr_Y + self.radius/2)
+#         for ix in range(r_low,r_high+1):
+#             for iy in range(c_low,c_high+1):
+                
+#                 newX = self.x[ix,iy]
+#                 newY = self.y[ix,iy]
+#                 if ((newX - curr_X)**2 + (newY - curr_Y)**2 <= self.radius**2) \
+#                     and self.gf[ix,iy] and np.isnan(self.groups[ix,iy]):
+#                     new_area, new_positions_sum = self.dfs(ix, iy)
+#                     area = area + new_area
+#                     positions_sum = positions_sum + new_positions_sum
+#         return area, positions_sum
+
+class GFSpace:
+    def __init__(self, x, y, nfout, radius):
+        self.radius = radius
+        self.xp = x[nfout]
+        self.yp = y[nfout]
+        self.pos = np.array([self.xp, self.yp])
+        self.gp = np.zeros(self.xp.shape,dtype=int)
+        self.n_groups = 0
+        for p in range(self.yp.size):
+            if self.gp[p] == 0:
+                self.n_groups += 1
+                self.buf = [p]
+                self.n_proc = 0
+                while len(self.buf)>self.n_proc:
+                    self.dfs(self.buf[self.n_proc],self.n_groups)
+                    self.n_proc += 1
+
+        self.groups = np.zeros(x.shape)
+        self.groups[nfout] = self.gp
+        self.areas = np.zeros((1,self.n_groups))
+        self.centroids = np.zeros((2,self.n_groups))
+        self.gp -= 1
+        for ix, iy, ig in zip(self.xp, self.yp, self.gp):
+            self.areas[0,ig] = self.areas[0,ig] + 1
+            self.centroids[:,ig] = self.centroids[:,ig] + np.array([ix,iy])
+        self.centroids = self.centroids/self.areas
+
+    def dfs(self,p,color):
+        in_this = np.logical_and(((self.xp - self.xp[p])**2 + (self.yp - self.yp[p])**2) < self.radius**2 , self.gp==0)
+        self.gp[in_this] = color
+        self.buf.extend(np.argwhere(in_this))
+        # for bp in np.argwhere(in_this):
+        #     self.dfs(bp,color)
+
 fuzzGST = NFModule('NF00ref_YHWANG_fis4python.mat')
 v6m_path = os.path.join('../mat/','POLAR',case_name)
 v6m_list = glob.glob(v6m_path + "/polar*npy")
 # PARROT0 = np.load('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.npy')
 PARROT0 = np.load(v6m_list[0])
 interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT0[:,:,0].reshape(-1))
+nf_history = []
 for ifn in v6m_list[1:5]:
     PARROT = np.load(ifn)
 
@@ -226,17 +306,8 @@ for ifn in v6m_list[1:5]:
     z0[np.isnan(z0)] = 0
     diffz = z1-z0
 
-    # tic = time.time()  # Start timer
     PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
-    # print(np.min(PARROT[:,:,0]))
-    # print(np.max(PARROT[:,:,0]))
-    # # plt.pcolormesh(np.isnan(PARROT[:,:,0]))
-    # plt.pcolormesh(PARROT[:,:,0])
-    # plt.show()
-    # exit()
-    # interpolator = LinearNDInterpolator((RegPolarX[1:,:].reshape(-1),RegPolarY[1:,:].reshape(-1)), PARROT[1:,:,0].reshape(-1))
-    
-    # for iv in range(PARROT.shape[-1]):
+
     for iv in [0,1,3,4,5]:
     # for iv in [1]:
         if iv == 3:
@@ -284,13 +355,6 @@ for ifn in v6m_list[1:5]:
             thrREF,10,(3*17+1*18))
 
         zoriginscore[:,:,irot] = rot_score_back(ztotscore,-origindeg)
-        # if irot==3:
-        #     plt.pcolormesh(ztotscore)
-        #     plt.figure()
-        #     plt.pcolormesh(zoriginscore[:,:,irot])
-        #     plt.title(f'rot {origindeg}')
-        #     plt.show()
-        #     exit()
 
         roted = np.roll(orirot, shift=indi, axis=1)
         interpolator.values = roted.reshape(-1,1)
@@ -385,6 +449,12 @@ for ifn in v6m_list[1:5]:
     PARROT0 = PARROT
     matout = os.path.join(exp_preds_event,'pynf_pred'+os.path.basename(ifn)[5:-3]+'mat')
     scipy.io.savemat(matout, {"skel_nfout2": skel_nfout2})
+    nf_history.append( GFSpace(Cx, Cy, skel_nfout2, 4) )
+    # gfworker = GFSpace(Cx, Cy, skel_nfout2, 4)
+    # print(gfworker.n_groups)
+    # plt.pcolormesh(gfworker.groups)
+    # plt.show()
+    # exit()
 
 toc = time.time()  # End timer
 print(f"Elapsed time: {toc - tic:.6f} seconds")
@@ -409,3 +479,7 @@ print(f"Elapsed time: {toc - tic:.6f} seconds")
 # # plt.pcolormesh(np.isnan(PARITP[:,:,0]))
 # # plt.pcolor(PARITP[:,:,0])
 # plt.show()
+
+
+
+
