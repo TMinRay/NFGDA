@@ -72,7 +72,7 @@ NUM_AZ = 720
 def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
     var_2_parrot_idx = {'reflectivity': 0, 'velocity': 1, 'spectrum_width': 2, 'differential_phase': 3,
                         'cross_correlation_ratio': 4, 'differential_reflectivity': 5}
-    target_el = 1.25
+    # target_el = 1.25
     v06_folder = os.path.join(v06_folder, case_id)
     l2_files = [entry for entry in os.listdir(v06_folder) if entry.endswith("V06")]
     l2_files.sort()
@@ -121,8 +121,8 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
         for slice_idx in range(nsweeps):
             radar_el = ReadSliceElevation( radar_obj, slice_idx)
             scan_el = np.nanmedian(radar_el)
-            if abs(scan_el-target_el)>0.3:
-                continue
+            # if abs(scan_el-target_el)>0.3:
+            #     continue
             radar_range, az_sweep_deg, radar_el, data_slice, mask_slice, labels_slice, data_mask_slice = ReadRadarSliceUpdate(
                 radar_obj, slice_idx)
             print("Processing elevation {} degrees".format(np.nanmedian(radar_el)))
@@ -159,9 +159,9 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="")
-    parser.add_argument('-v06_folder', type=str, default="../../V06", help='folder containing V06 files')
+    parser.add_argument('-v06_folder', type=str, default="../V06", help='folder containing V06 files')
     parser.add_argument('-case_id', type=str, help='V06 case folder')
-    parser.add_argument('-mat_folder', type=str, default="../../mat", help='output folder for mat files')
+    parser.add_argument('-mat_folder', type=str, default="../mat", help='output folder for mat files')
     parser.add_argument('-i_start', type=int, default=0, help='0-based index of first V06 file')
     parser.add_argument('-i_end', type=int, default=99, help='0-based index of last V06 file')
     args = parser.parse_args()
