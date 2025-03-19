@@ -19,10 +19,10 @@ stdINT=2;
 grow_indices = grow_indices(:);
 gcol_indices = gcol_indices(:);
 
-load('../IMG/tmpCELLdatax.mat','datacx');
-load('../IMG/tmpCELLdatay.mat','datacy');
-load('../IMG/tmpCELLdatax2.mat','datacx2');
-load('../IMG/tmpCELLdatay2.mat','datacy2');
+load('tmpCELLdatax.mat','datacx');
+load('tmpCELLdatay.mat','datacy');
+load('tmpCELLdatax2.mat','datacx2');
+load('tmpCELLdatay2.mat','datacy2');
 ndatacx = numel(datacx);
 crsize = 5;
 cellINT = crsize + 2;

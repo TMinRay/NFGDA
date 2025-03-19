@@ -1,5 +1,10 @@
 **/*.asv
 main/*mat
+!main/tmpCELLdatax.mat
+!main/tmpCELLdatax2.mat
+!main/tmpCELLdatay.mat
+!main/tmpCELLdatay2.mat
+!main/NF00ref_YHWANG_fis4python.mat
 main/*.swp
 main/*.m~
 mat/
