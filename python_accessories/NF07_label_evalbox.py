@@ -8,7 +8,7 @@ import numpy as np
 from scipy.io import savemat
 
 import matplotlib.pyplot as plt
-import matplotlib.path as path
+# import matplotlib.path as path
 import matplotlib as mpl
 from mpl_point_clicker import clicker
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
@@ -17,9 +17,6 @@ import cartopy.crs as ccrs
 import sys
 import os.path
 import os, pyart
-
-# import read_plot_func as dlplot
-
 
 def downloadnexrad(radarsite, cases):
 	from nexrad_vwp_s3 import downloadrange
@@ -133,7 +130,7 @@ def plotradarobj(rpath, stlat, stlon, savepath='./'):
 		#codes.append(np.uint8(79))
 		#print(codes)
 
-		pathsall.append(path.Path(arr, codes=codes))
+		pathsall.append(mpl.path.Path(arr, codes=codes))
 
 	# Path plotting code, optional
 	plotpaths_debug = False
@@ -467,34 +464,38 @@ def find_params(name, velext, plotext, lat, lon, alt, el_fixed, start_time, end_
 
 if __name__ == "__main__":
 	import argparse, sys
+	import configparser
 
+	config = configparser.ConfigParser()
+	config.read("../main/NFGDA.ini")
+	case_name = config["Settings"]["case_name"]
 	# Parse arguments!!
-	parser = argparse.ArgumentParser(
-						prog='caseident.py',
-						description='Automatically identify gust front cases for a given NEXRAD site in a given date range using METAR and NEXRAD data',
-						epilog='')
-	parser.add_argument('-case_id', type=str, help='V06 case folder',required=True)
-	parser.add_argument('-i_start', type=int, default=0, help='0-based index of first V06 file')
-	# parser.add_argument('radar')
-	# parser.add_argument('startdate')
-	# parser.add_argument('enddate')
-	args = parser.parse_args()
-	# startdate = datetime.strptime(args.startdate, '%Y%m%d')
-	# enddate = datetime.strptime(args.enddate, '%Y%m%d')
+	# parser = argparse.ArgumentParser(
+	# 					prog='caseident.py',
+	# 					description='Automatically identify gust front cases for a given NEXRAD site in a given date range using METAR and NEXRAD data',
+	# 					epilog='')
+	# parser.add_argument('-case_id', type=str, help='V06 case folder',required=True)
+	# parser.add_argument('-i_start', type=int, default=0, help='0-based index of first V06 file')
+	# # parser.add_argument('radar')
+	# # parser.add_argument('startdate')
+	# # parser.add_argument('enddate')
+	# args = parser.parse_args()
+	# # startdate = datetime.strptime(args.startdate, '%Y%m%d')
+	# # enddate = datetime.strptime(args.enddate, '%Y%m%d')
 
-	# nearestsite = nearestmetar(args.radar.lower())
-	# metardata = downloadmetar(nearestsite, startdate, enddate)
-	# cases = findcases(metardata)
-	# cases = mergecases(cases)
-	# radarobjs = downloadnexrad(args.radar.upper(), cases)
-	# ii = 0
-	# testdir = './Data/Test/'
-	# downdir = './Data/NEXRAD/'
-	# downdir = '/mnt/n/NFGDA/NEXRAD/KABX20200707_01/'
-	downdir = '../V06/'+args.case_id+'/'
+	# # nearestsite = nearestmetar(args.radar.lower())
+	# # metardata = downloadmetar(nearestsite, startdate, enddate)
+	# # cases = findcases(metardata)
+	# # cases = mergecases(cases)
+	# # radarobjs = downloadnexrad(args.radar.upper(), cases)
+	# # ii = 0
+	# # testdir = './Data/Test/'
+	# # downdir = './Data/NEXRAD/'
+	# # downdir = '/mnt/n/NFGDA/NEXRAD/KABX20200707_01/'
+	downdir = '../V06/'+case_name+'/'
 	print(downdir)
 	radarobjs = loadnexrad(downdir=downdir)
 	#print(radarobjs)
-	for radarobj in radarobjs[args.i_start:]:
+	for radarobj in radarobjs[:config.getint('Settings', 'i_end')]:
 		print(radarobj)
 		plotradarobj(radarobj, 0,0, savepath=radarobj)

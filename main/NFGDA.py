@@ -11,11 +11,20 @@ import matplotlib.pyplot as plt
 import glob
 import sys
 import os
+import configparser
 
-case_name = 'KABX20200705_21'
-export_preds_dir = './tracking_points/nf_preds/'
+config = configparser.ConfigParser()
+config.read("NFGDA.ini")
+case_name = config["Settings"]["case_name"]
+export_preds_dir = config["Settings"]["export_preds_dir"]
+evalbox_on = config.getboolean('Settings', 'evalbox_on')
+# evalbox_on = True
+
 exp_preds_event = export_preds_dir + case_name
 os.makedirs(exp_preds_event,exist_ok=True)
+label_path = os.path.join('../V06/',case_name,case_name+'_labels')
+# print(label_path)
+
 angint = 0.5
 rotdegree = 180/9
 rotnum = int(np.round(180/rotdegree))
@@ -297,7 +306,9 @@ v6m_list = glob.glob(v6m_path + "/polar*npy")
 PARROT0 = np.load(v6m_list[0])
 interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT0[:,:,0].reshape(-1))
 nf_history = []
-for ifn in v6m_list[1:5]:
+
+for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
+    print(ifn)
     PARROT = np.load(ifn)
 
     z1 = PARROT[:,:,0].copy()
@@ -424,11 +435,11 @@ for ifn in v6m_list[1:5]:
 
         # %%%%%%%%%%%%%%      direct layout for fis input
     inputNF[:,:,0] = beta
-    inputNF[:,:,1] = PARITP[:,:,0]
-    inputNF[:,:,2] = PARITP[:,:,4]
-    inputNF[:,:,3] = PARITP[:,:,5]
+    inputNF[:,:,1] = PARITP[:,:,0] # reflectivity
+    inputNF[:,:,2] = PARITP[:,:,4] # cross_correlation_ratio
+    inputNF[:,:,3] = PARITP[:,:,5] # differential_reflectivity
     inputNF[:,:,4] = stda
-    inputNF[:,:,5] = PARITP[:,:,3]
+    inputNF[:,:,5] = PARITP[:,:,3] # differential_phase
 
     pnan = np.isnan(inputNF)
     pnansum = np.max(pnan,2)
@@ -447,8 +458,14 @@ for ifn in v6m_list[1:5]:
     skel_nfout = skeletonize(pskel_nfout*hh)
     skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
     PARROT0 = PARROT
-    matout = os.path.join(exp_preds_event,'pynf_pred'+os.path.basename(ifn)[5:-3]+'mat')
-    scipy.io.savemat(matout, {"skel_nfout2": skel_nfout2})
+    matout = os.path.join(exp_preds_event,'nf_pred'+os.path.basename(ifn)[5:-3]+'mat')
+    if evalbox_on:
+        mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
+        handpick = scipy.io.loadmat(mhandpick)
+        scipy.io.savemat(matout, {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
+                "evalbox":handpick['evalbox'],"nfout": skel_nfout2})
+    else:
+        scipy.io.savemat(matout, {"skel_nfout2": skel_nfout2})
     nf_history.append( GFSpace(Cx, Cy, skel_nfout2, 4) )
     # gfworker = GFSpace(Cx, Cy, skel_nfout2, 4)
     # print(gfworker.n_groups)

@@ -3,7 +3,7 @@ import pyart
 import numpy as np
 import argparse
 import scipy
-
+import configparser
 
 def read_info_from_radar_name(radar_file):
     """ Copied from https://github.com/PreciousJatau47/VAD_correction/blob/master/RadarHCAUtils.py
@@ -158,12 +158,17 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="")
-    parser.add_argument('-v06_folder', type=str, default="../V06", help='folder containing V06 files')
-    parser.add_argument('-case_id', type=str, help='V06 case folder')
-    parser.add_argument('-mat_folder', type=str, default="../mat", help='output folder for mat files')
-    parser.add_argument('-i_start', type=int, default=0, help='0-based index of first V06 file')
-    parser.add_argument('-i_end', type=int, default=99, help='0-based index of last V06 file')
-    args = parser.parse_args()
-    convert_v06_to_mat(v06_folder=args.v06_folder, case_id=args.case_id, mat_folder=args.mat_folder,
-                       i_start=args.i_start, i_end=args.i_end)
+    # parser = argparse.ArgumentParser(description="")
+    # parser.add_argument('-v06_folder', type=str, default="../V06", help='folder containing V06 files')
+    # parser.add_argument('-case_id', type=str, help='V06 case folder')
+    # parser.add_argument('-mat_folder', type=str, default="../mat", help='output folder for mat files')
+    # parser.add_argument('-i_start', type=int, default=0, help='0-based index of first V06 file')
+    # parser.add_argument('-i_end', type=int, default=99, help='0-based index of last V06 file')
+    # args = parser.parse_args()
+    # convert_v06_to_mat(v06_folder=args.v06_folder, case_id=args.case_id, mat_folder=args.mat_folder,
+    #                    i_start=args.i_start, i_end=args.i_end)
+    config = configparser.ConfigParser()
+    config.read("../main/NFGDA.ini")
+    case_name = config["Settings"]["case_name"]
+    convert_v06_to_mat(v06_folder="../V06", case_id=case_name, mat_folder="../mat",
+                       i_start=0, i_end=99)

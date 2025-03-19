@@ -1,16 +1,16 @@
 NF00_header;
 
-fig_dir=['./tracking_points/figures/echo'];
-nf_pred_dir = './tracking_points/nf_preds';
+header = ini2struct('NFGDA.ini');
+case_name = header.settings.case_name;
+nf_pred_dir = header.settings.export_preds_dir;
+fig_dir = header.settings.fig_dir;
+
+[xi2,yi2] = meshgrid(-100:0.5:100,-100:0.5:100);
 
 % indcirc = double(sqrt(xi2.^2+yi2.^2)<=70);
 indcirc = double(sqrt(xi2.^2+yi2.^2)<=100);
 
-cindex = 1;
-% for cindex=1:numel(ttable(:,1));
-%     for cindex=7:numel(ttable(:,1));
-
-dtdout = fullfile(fig_dir, case_name);    
+dtdout = fullfile(fig_dir, case_name);
 if not(isfolder(dtdout))
     mkdir(dtdout);
 end

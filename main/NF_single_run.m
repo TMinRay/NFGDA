@@ -1,9 +1,50 @@
+clear all;
+close all;
+
 tic
-NF00_header;
 
-debugmat = true;
+AZM=720;
+Gate2=100*4;
 
-export_preds_dir = ['./tracking_points/nf_preds'];
+r=(0:400-1)*0.25;
+rotaz=0:0.5:359.5;
+for j=1:Gate2
+for k=1:AZM
+    x(j,k)=r(j)*sin(rotaz(k)*pi/180);
+    y(j,k)=r(j)*cos(rotaz(k)*pi/180);
+end
+end
+
+[xi2,yi2] = meshgrid(-100:0.5:100,-100:0.5:100);
+
+
+matPATH=['../mat'];
+% export_preds_dir = ['./tracking_points/nf_preds'];
+% case_name = 'KABX20200705_21';
+header = ini2struct('NFGDA.ini');
+case_name = header.settings.case_name;
+export_preds_dir = header.settings.export_preds_dir;
+
+% no_eval = false;
+evalbox_on = parseBoolean(header.settings.evalbox_on);
+debugmat = parseBoolean(header.settings.debugmat);
+
+startt=1;
+endt = str2num(header.settings.i_end) + 1;
+
+rotdegree=180/9;
+angint=0.5;
+rotAZ=round(rotdegree/0.5);
+rotnum=round(180/rotdegree);
+thrREF=5;
+rotbackrad=deg2rad(rotdegree);
+cellcsrthresh=0.5;
+idcellscrthresh=0.5;
+thrdREF=0.3; 
+cellthresh=5;
+cbcellthrsh=0.8;
+
+
 xg = x(2:end,:);
 yg = y(2:end,:);
 % stdCELLcxout=['./NF03_STDdatax.mat'];
@@ -45,35 +86,24 @@ fuzzGST=readfis('./NF00ref_YHWANG.fis');
 se = strel('ball',5,1);
 
 avgINT =8;
-disccx = zeros(17,17);
-disccy = zeros(17,17);
-for i=1:17
-    cxout=['./movingavg/ccx' num2str(i,'%02i') '.mat'];
-    cyout=['./movingavg/ccy' num2str(i,'%02i') '.mat'];
-    load(cxout,'ccx');
-    load(cyout,'ccy');
-    disccx(i,:)=ccx;
-    disccy(i,:)=ccy;
-end
-nccx=numel(ccx);
-disccx = reshape(disccx,1,17,17);
-disccy = reshape(disccy,1,17,17);
 
 disccx = zeros(1,17,17);
 disccy = zeros(1,17,17);
 for i =1:17
-disccx(:,i,:)=ceil([-8:8]*cosd(90/8*(i-1)))
-disccy(:,i,:)=ceil([-8:8]*sind(90/8*(i-1)))
+disccx(:,i,:)=ceil([-8:8]*cosd(90/8*(i-1)));
+disccy(:,i,:)=ceil([-8:8]*sind(90/8*(i-1)));
 end
+nccx = size(disccx,1);
 v6m_path = fullfile(matPATH,'POLAR',case_name);
 v6m_list = {dir(fullfile(v6m_path,'polar*mat')).name};
+label_path = fullfile('../V06/',case_name,[case_name '_labels']);
 % v6m_list([1,2]) = [];
 PUTDAT = case_name;
 % for cindex=1:numel(ttable(:,1));
 %     PUTDAT=ttable(cindex,:);
-cindex = 1;
-startm=startt(cindex)+1;
-endm=endt(cindex);
+% cindex = 1;
+startm=startt+1;
+endm=endt;
 
 exp_preds_event = fullfile(export_preds_dir,PUTDAT);
 if not(isfolder(exp_preds_event))
@@ -83,10 +113,11 @@ end
 % t0=load(mrout1, 'PARROT');
 
 t0 = load(fullfile(v6m_path,v6m_list{startm-1}), 'PARROT');
-for m=startm:endm
+for m=startm:min(endm,size(v6m_list,2))
 %%%%%%%%%%%%%%      NF01_convert_to_cartesian
     % mpolarout=[matPATH '/POLAR/polar' PUTDAT num2str(m,'%02i') '.mat'];
     % load(mpolarout, 'PARROT');
+    fullfile(v6m_path,v6m_list{m})
     load(fullfile(v6m_path,v6m_list{m}), 'PARROT');
     PARITP=zeros(401,401,6);
     varnum=[1 2 3 4 5 6];
@@ -304,14 +335,11 @@ for m=startm:endm
 
 %%%%%%%%%%%%%%      NF07_obtaining_evaluation_box
 
-    if no_eval
-        evalbox = zeros(401,401);
-    else
-        mhandpick=[ matPATH '/HANDPICK/handpick' PUTDAT num2str(m,'%02i') '.mat'];
+    if evalbox_on
+        mhandpick = fullfile(label_path,v6m_list{m}(10:end-4));
         load(mhandpick,'evalbox');
-        % load(mhandpick,'handpick');
-        % pevalbox = bwmorph(double(handpick), 'skel', inf);
-        % evalbox = double(imdilate(double(pevalbox),se)>1);
+    else
+        evalbox = zeros(401,401);
     end
 
     if debugmat
