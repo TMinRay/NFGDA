@@ -1,4 +1,5 @@
 **/*.asv
+**/__pycache__/
 main/*mat
 !main/tmpCELLdatax.mat
 !main/tmpCELLdatax2.mat
