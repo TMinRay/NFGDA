@@ -13,7 +13,6 @@ main/movingavg/
 main/check_png/
 main/*.dat
 main/*.png
-main/*.fis
 main/tracking_points/*/
 main/MIGFA/*.m~
 MIGFAdat/
