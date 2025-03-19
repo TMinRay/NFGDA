@@ -7,10 +7,8 @@ aws_int = nexradaws.NexradAwsInterface()
 radar_id = 'KABX'
 # year, mth, day = 
 # start_hr, start_min = 
-start = datetime(2020, 7, 26, 20, 0)
-end = datetime(2020, 7, 26, 21, 20)
-print(dir(start))
-print(start.year,start.month,start.day,start.hour)
+start = datetime(2020, 7, 5, 21, 15)
+end = datetime(2020, 7, 5, 23, 20)
 # start = year, mth, day, start_hr, start_min
 # end = datetime(year, mth, day, end_hr, end_min)
 # end = datetime(year, mth, day+1, end_hr, end_min)
