@@ -464,8 +464,15 @@ for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
         handpick = scipy.io.loadmat(mhandpick)
         scipy.io.savemat(matout, {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
                 "evalbox":handpick['evalbox'],"nfout": skel_nfout2})
+        np.savez(matout[:-3]+'npz', 
+            xi2=Cx, yi2=Cy, evalbox=handpick['evalbox'],
+            REF=PARITP[:,:,0], nfout=skel_nfout2)
     else:
-        scipy.io.savemat(matout, {"skel_nfout2": skel_nfout2})
+        scipy.io.savemat(matout, {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
+                "nfout": skel_nfout2})
+        np.savez(matout[:-3]+'npz',
+            xi2=Cx, yi2=Cy,
+            REF=PARITP[:,:,0], nfout=skel_nfout2)
     nf_history.append( GFSpace(Cx, Cy, skel_nfout2, 4) )
     # gfworker = GFSpace(Cx, Cy, skel_nfout2, 4)
     # print(gfworker.n_groups)
