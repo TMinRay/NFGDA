@@ -459,20 +459,15 @@ for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
     skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
     PARROT0 = PARROT
     matout = os.path.join(exp_preds_event,'nf_pred'+os.path.basename(ifn)[5:-3]+'mat')
+    data_dict = {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
+                "nfout": skel_nfout2,"inputNF":inputNF}
     if evalbox_on:
         mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
         handpick = scipy.io.loadmat(mhandpick)
-        scipy.io.savemat(matout, {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
-                "evalbox":handpick['evalbox'],"nfout": skel_nfout2})
-        np.savez(matout[:-3]+'npz', 
-            xi2=Cx, yi2=Cy, evalbox=handpick['evalbox'],
-            REF=PARITP[:,:,0], nfout=skel_nfout2)
-    else:
-        scipy.io.savemat(matout, {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
-                "nfout": skel_nfout2})
-        np.savez(matout[:-3]+'npz',
-            xi2=Cx, yi2=Cy,
-            REF=PARITP[:,:,0], nfout=skel_nfout2)
+        data_dict.update({"evalbox":handpick['evalbox']})
+
+    scipy.io.savemat(matout, data_dict)
+    np.savez(matout[:-3]+'npz', **data_dict)
     nf_history.append( GFSpace(Cx, Cy, skel_nfout2, 4) )
     # gfworker = GFSpace(Cx, Cy, skel_nfout2, 4)
     # print(gfworker.n_groups)
@@ -482,28 +477,3 @@ for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
 
 toc = time.time()  # End timer
 print(f"Elapsed time: {toc - tic:.6f} seconds")
-# plt.pcolormesh((beta),cmap='jet')
-# # plt.pcolormesh(hGST>=0.24)
-# plt.pcolormesh(skel_nfout)
-
-# plt.colorbar()
-# plt.figure()
-
-# plt.pcolormesh(hh)
-
-# plt.colorbar()
-
-# plt.figure()
-
-# plt.pcolormesh(skel_nfout2)
-
-# plt.colorbar()
-# # plt.figure()
-# # plt.pcolormesh(np.ma.masked_where(np.isnan(PARITP[:,:,0]), beta),cmap='jet')
-# # plt.pcolormesh(np.isnan(PARITP[:,:,0]))
-# # plt.pcolor(PARITP[:,:,0])
-# plt.show()
-
-
-
-

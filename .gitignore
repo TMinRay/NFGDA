@@ -6,6 +6,7 @@ main/*mat
 !main/tmpCELLdatay.mat
 !main/tmpCELLdatay2.mat
 !main/NF00ref_YHWANG_fis4python.mat
+main/archive
 main/*.swp
 main/*.m~
 mat/
