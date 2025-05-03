@@ -168,7 +168,7 @@ if __name__ == '__main__':
     # convert_v06_to_mat(v06_folder=args.v06_folder, case_id=args.case_id, mat_folder=args.mat_folder,
     #                    i_start=args.i_start, i_end=args.i_end)
     config = configparser.ConfigParser()
-    config.read("../main/NFGDA.ini")
+    config.read("./NFGDA.ini")
     case_name = config["Settings"]["case_name"]
     convert_v06_to_mat(v06_folder="../V06", case_id=case_name, mat_folder="../mat",
                        i_start=0, i_end=99)
