@@ -445,8 +445,8 @@ for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
     pnansum = np.max(pnan,2)
     inputNF[pnansum,:] = np.nan
 
-    hGST = fuzzGST.eval_fis(inputNF)
-    hh = hGST>=0.24
+    outputGST = fuzzGST.eval_fis(inputNF)
+    hh = outputGST>=0.24
     hGST = medfilt2d(hh.astype(float), kernel_size=3)
 
     # smoothedhGST = gaussian_filter(hGST, sigma=1, mode='nearest')
@@ -464,7 +464,7 @@ for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
     if evalbox_on:
         mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
         handpick = scipy.io.loadmat(mhandpick)
-        data_dict.update({"evalbox":handpick['evalbox']})
+        data_dict.update({"evalbox":handpick['evalbox'],'outputGST':outputGST})
 
     scipy.io.savemat(matout, data_dict)
     np.savez(matout[:-3]+'npz', **data_dict)
