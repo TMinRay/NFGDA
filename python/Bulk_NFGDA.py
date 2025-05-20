@@ -1,4 +1,4 @@
-from NF01_convert_V06_to_mat import *
+from NFGDA import *
 clist=[
 # 'KABX20200704_02',
 # 'KABX20200705_21',
@@ -17,5 +17,4 @@ clist=[
 'KABX20210707_01',
 'KABX20210709_22']
 for case_name in clist:
-    convert_v06_to_mat(v06_folder="../V06", case_id=case_name, mat_folder="../mat",
-                       i_start=0, i_end=99)
+    nfgda_proc(case_name)
