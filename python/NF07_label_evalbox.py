@@ -18,25 +18,7 @@ import sys
 import os.path
 import os, pyart
 
-def downloadnexrad(radarsite, cases):
-	from nexrad_vwp_s3 import downloadrange
-	parentdir = './Data/NEXRAD/'
-	
-	radarobjs = []
-	for case in cases:
-		starttime = case[2]
-		endtime = case[3]
-		datistr = dt.datetime.strftime(starttime, '%Y%m%d_%H')
-		childdir = f'{radarsite.upper()}{datistr}/'
-		downloaddir = parentdir + childdir
-		rangeobjs = downloadrange(starttime, endtime, radarsite, downloaddir)
-		for obj in rangeobjs: radarobjs.append(obj)
-
-	return radarobjs
-
 def loadnexrad(downdir='./Data/NEXRAD/', ii=0):
-
-
 	radarobjs = []
 	d = list(os.walk(downdir))
 	# d = []
@@ -467,31 +449,8 @@ if __name__ == "__main__":
 	import configparser
 
 	config = configparser.ConfigParser()
-	config.read("../main/NFGDA.ini")
+	config.read("./NFGDA.ini")
 	case_name = config["Settings"]["case_name"]
-	# Parse arguments!!
-	# parser = argparse.ArgumentParser(
-	# 					prog='caseident.py',
-	# 					description='Automatically identify gust front cases for a given NEXRAD site in a given date range using METAR and NEXRAD data',
-	# 					epilog='')
-	# parser.add_argument('-case_id', type=str, help='V06 case folder',required=True)
-	# parser.add_argument('-i_start', type=int, default=0, help='0-based index of first V06 file')
-	# # parser.add_argument('radar')
-	# # parser.add_argument('startdate')
-	# # parser.add_argument('enddate')
-	# args = parser.parse_args()
-	# # startdate = datetime.strptime(args.startdate, '%Y%m%d')
-	# # enddate = datetime.strptime(args.enddate, '%Y%m%d')
-
-	# # nearestsite = nearestmetar(args.radar.lower())
-	# # metardata = downloadmetar(nearestsite, startdate, enddate)
-	# # cases = findcases(metardata)
-	# # cases = mergecases(cases)
-	# # radarobjs = downloadnexrad(args.radar.upper(), cases)
-	# # ii = 0
-	# # testdir = './Data/Test/'
-	# # downdir = './Data/NEXRAD/'
-	# # downdir = '/mnt/n/NFGDA/NEXRAD/KABX20200707_01/'
 	downdir = '../V06/'+case_name+'/'
 	print(downdir)
 	radarobjs = loadnexrad(downdir=downdir)
