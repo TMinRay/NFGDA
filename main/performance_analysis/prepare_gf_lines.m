@@ -1,13 +1,13 @@
 clear; clc; close all;
 
-data_path = './clusters';
+% data_path = './clusters';
 figure_folder = './figures';
 line_out_folder = './gf_and_box_lines';
 
 color_order = get(gca,'colororder');
 close;
 
-case_names = {'KABX20210708_00_cured_gc'};
+case_names = {'KABX20210708_23'};
 % case_names = {'KABX20210708_00_cured_gc','KABX20210708_23_cured_gc','KABX20210707_00_cured_gc'};
 
 for case_id = 1:length(case_names)
@@ -18,41 +18,50 @@ for case_id = 1:length(case_names)
         continue
     end
 
-%     fig_path = fullfile(figure_folder, case_name);
-%     if ~isfolder(fig_path)
-%         mkdir(fig_path);
-%     end
+    fig_path = fullfile(figure_folder, case_name);
+    if ~isfolder(fig_path)
+        mkdir(fig_path);
+    end
 
     line_out_path = fullfile(line_out_folder, case_name);
     if ~isfolder(line_out_path)
         mkdir(line_out_path);
     end
 
-    ppi_folder = fullfile(data_path, case_name);
-    idx_in_box = dir(ppi_folder);
-    ppi_names = {idx_in_box.name};
+    % ppi_folder = fullfile(data_path, case_name);
+    % idx_in_box = dir(ppi_folder);
+    % ppi_names = {idx_in_box.name};
+    v6m_path = fullfile('../../python/tracking_points/nf_preds',case_name);
+    v6m_list = {dir(fullfile(v6m_path,'nf_pred*_V06.mat')).name};
 
-    for i = 1:length(ppi_names)
+    for i = 1:length(v6m_list)
 
-        ppi_name_ext = ppi_names{i};
-        if ppi_name_ext == "." || ppi_name_ext == ".."
-            continue
-        end
+        % ppi_name_ext = ppi_names{i};
+        % if ppi_name_ext == "." || ppi_name_ext == ".."
+        %     continue
+        % end
 
-        obj = strsplit(ppi_name_ext,".");
-        ppi_num = obj{1};
+        % obj = strsplit(ppi_name_ext,".");
+        % ppi_num = obj{1};
 
-        ppi_path = fullfile(data_path, case_name, [ppi_num '.mat']);
-        load(ppi_path);
-
+        % ppi_path = fullfile(data_path, case_name, [ppi_num '.mat']);
+        % load(ppi_path);
+        load(fullfile(v6m_path,v6m_list{i}));
+        CC = bwconncomp(nfout);
+        num_gf = CC.NumObjects;
+        gf_points = cell(num_gf);
+        gf_lines = cell(num_gf);
+        groups = cc2groups(size(evalbox),CC);
         % Estimate GF lines
-        gf_points = cell(size(areas));
-        gf_lines = cell(size(areas));
-        for id = 1:length(areas)
-            mask = groups == id;
-            if sum(sum(mask)) == 0
-                continue
-            end
+        % gf_points = cell(size(areas));
+        % gf_lines = cell(size(areas));
+        % for id = 1:length(areas)
+        for id = 1:num_gf
+            mask = CC.PixelIdxList{id};
+            % mask = groups == id;
+            % if sum(sum(mask)) == 0
+            %     continue
+            % end
 
             x = xi2(mask)';
             y = yi2(mask)';
@@ -66,7 +75,7 @@ for case_id = 1:length(case_names)
         % Estimate major axes of evaluation box and intersection with GF line
         CC = bwconncomp(evalbox);
         num_boxes = CC.NumObjects;
-        gf_line_hit = cell(num_boxes, length(areas));
+        gf_line_hit = cell(num_boxes, num_gf);
         box_major_axis = cell([num_boxes 1]);
 
         for i_box = 1:num_boxes
@@ -98,14 +107,15 @@ for case_id = 1:length(case_names)
             end
         end
 
-        save(fullfile(line_out_path,ppi_name_ext),'xi2','yi2','evalbox','gf_points','gf_lines','box_major_axis','gf_line_hit');
+        % save(fullfile(line_out_path,ppi_name_ext),'xi2','yi2','evalbox','gf_points','gf_lines','box_major_axis','gf_line_hit');
+        save(fullfile(line_out_path,['gf_lines' v6m_list{i}(8:end)]),'xi2','yi2','evalbox','gf_points','gf_lines','box_major_axis','gf_line_hit');
 
 
         % Figures
         fig = figure;
         set(fig,'Position',[100 100 500 480]);
 
-        for id = 1:length(areas)
+        for id = 1:length(num_gf)
             curr_points = gf_points{id};
             curr_line = gf_lines{id};
 

@@ -5,9 +5,13 @@ figure_folder = './figures';
 line_out_folder = './gf_and_box_lines';
 stats_folder = './stats';
 
+if ~isfolder(stats_folder)
+    mkdir(stats_folder);
+end
+
 color_order = get(gca,'colororder'); close;
 
-case_names = {'KABX20210708_00_cured_gc'};
+case_names = {'KABX20210708_23'};
 % case_names = {'KABX20210708_00_cured_gc','KABX20210708_23_cured_gc','KABX20210707_00_cured_gc'};
 
 plds = []; precs = [];
@@ -25,9 +29,11 @@ for case_id = 1:length(case_names)
         mkdir(fig_path);
     end
 
-    ppi_folder = fullfile(line_out_folder, case_name);
-    idx_in_box = dir(ppi_folder);
-    ppi_names = {idx_in_box.name};
+    % ppi_folder = fullfile(line_out_folder, case_name);
+    % idx_in_box = dir(ppi_folder);
+    % ppi_names = {idx_in_box.name};
+    v6m_path = fullfile('../../python/tracking_points/nf_preds',case_name);
+    v6m_list = {dir(fullfile(v6m_path,'nf_pred*_V06.mat')).name};
 
     stats_path = fullfile(stats_folder, [case_name '.mat']);
    
@@ -35,17 +41,21 @@ for case_id = 1:length(case_names)
     frame_nums_plds = [];
     case_precisions = [];
     frame_nums_precs = [];
-    for i = 1:length(ppi_names)
+    for i = 1:length(v6m_list)
 
-        ppi_name_ext = ppi_names{i};
-        if ppi_name_ext == "." || ppi_name_ext == ".."
-            continue
-        end
+        % ppi_name_ext = ppi_names{i};
+        % if ppi_name_ext == "." || ppi_name_ext == ".."
+        %     continue
+        % end
 
-        obj = strsplit(ppi_name_ext,".");
-        ppi_num = obj{1};
+        % obj = strsplit(ppi_name_ext,".");
+        % ppi_num = obj{1};
+        obj = strsplit(v6m_list{i},"_");
+        ppi_num = obj{3};
 
-        load(fullfile(line_out_folder, case_name,ppi_name_ext));
+        % load(fullfile(line_out_folder, case_name,ppi_name_ext));
+        line_out_path = fullfile(line_out_folder, case_name);
+        load(fullfile(line_out_path,['gf_lines' v6m_list{i}(8:end)]));
         [num_boxes, num_areas] = size(gf_line_hit);
 
         % Calculate PLD
@@ -135,7 +145,8 @@ for case_id = 1:length(case_names)
         grid on;
         title(sprintf("Average PLD: %4.2f. Precision: %4.2f.",avg_pld, precision_ppi),'Fontsize',14);
         set(gca,'TickDir','out','box','on','TickLength'  , [.01 .01], 'LineWidth' , 2);
-        print(fullfile(fig_path,[ppi_num '.png']),'-dpng')
+        % print(fullfile(fig_path,[ppi_num '.png']),'-dpng')
+        print(fullfile(fig_path,['gf_lines' v6m_list{i}(8:end-4) '.png']),'-dpng')
 
     end
     fprintf("Averages for %s. PLD: %4.2f. Precision: %4.2f\n", case_name, nanmean(case_plds), nanmean(case_precisions));
