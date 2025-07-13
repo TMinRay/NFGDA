@@ -159,3 +159,11 @@ end
 nanmean(plds)
 nanmean(precs)
 
+figure
+plot(plds,'b-',LineWidth=2)
+hold on
+plot(precs,'r-',LineWidth=2)
+title(strrep(case_name, '_', '\_'),'Fontsize',14);
+set(gca,'TickDir','out','box','on','TickLength'  , [.01 .01], 'LineWidth' , 2);
+grid on;
+print(fullfile(fig_path,[case_name '.png']),'-dpng')
