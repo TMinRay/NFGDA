@@ -14,6 +14,7 @@ from skimage.measure import label
 from scipy.signal import medfilt2d
 from scipy.spatial.distance import pdist, squareform
 from scipy.spatial import cKDTree
+import scipy.io
 
 VM=cl.VarMap()
 varname_table=VM.varname_table
@@ -23,8 +24,10 @@ config.read("./NFGDA.ini")
 export_preds_dir = config["Settings"]["export_preds_dir"]
 evalbox_on = config.getboolean('Settings', 'evalbox_on')
 fig_dir = config["Settings"]["fig_dir"]
-export_statistics_dir = config["Settings"]["export_statistics_dir"]
-os.makedirs(export_statistics_dir,exist_ok=True)
+# export_statistics_dir = config["Settings"]["export_statistics_dir"]
+# os.makedirs(export_statistics_dir,exist_ok=True)
+export_preds_fapos_dir = export_preds_dir[:-1]+'_pos/'
+os.makedirs(export_preds_fapos_dir,exist_ok=True)
 
 def eval_nf(nfloc,evalline,evalbox,gd):
     nfpredict = dilation(nfloc, disk(5))
@@ -36,6 +39,21 @@ def eval_nf(nfloc,evalline,evalbox,gd):
     HR = 1e2*sch/(scm+sch)
     FAR = 1e2*scf/(scp)
     return (HR, FAR), (Mhits, Mmiss, Mfa, q_arc)
+
+def log_stat(fn, stats_list):
+    grouped = list(zip(*stats_list))
+    # Stack each group
+    stacked = [np.stack(arr_list) for arr_list in grouped]
+    # Create a dictionary with key names
+    save_dict = {
+    'hits':stacked[0], 
+    'miss':stacked[1], 
+    'fa':stacked[2], 
+    'q_arc':stacked[3]
+    }
+    # Save to .npz
+    np.savez(fn, **save_dict)
+    return save_dict
 
 def rotation_matrix_2d(theta):
     """
@@ -194,6 +212,10 @@ def nffig_proc(case_name,plot_on=False):
     exp_preds_event = export_preds_dir + case_name
     savedir = os.path.join(fig_dir, case_name)
     os.makedirs(savedir,exist_ok=True)
+
+    export_preds_fapos_event = export_preds_fapos_dir + case_name
+    os.makedirs(export_preds_fapos_event,exist_ok=True)
+
     npz_list = glob.glob(exp_preds_event + "/*npz")
     wgfspace = GFSpace([18,72])
     for ppi_file in npz_list:
@@ -210,6 +232,8 @@ def nffig_proc(case_name,plot_on=False):
     hr_pos = []
     fa_pre = []
     fa_pos = []
+    stat_pre = []
+    stat_pos = []
     for ic,data in enumerate(wgfspace.data[:-1]):
         evalbox = data['evalbox']
         evalline = skeletonize(data['evalbox'])
@@ -217,11 +241,19 @@ def nffig_proc(case_name,plot_on=False):
         (hr,fa), eval_pre = eval_nf(data['nfout'],evalline,evalbox,gcoord)
         hr_pre.append(hr)
         fa_pre.append(fa)
+        stat_pre.append(eval_pre)
 
         proc_nf = wgfspace.get_cln_nf(ic)
+        matout = export_preds_fapos_event + '/' + npz_list[ic].split('/')[-1]
+        data_dict = {"xi2":data['xi2'],"yi2":data['yi2'],"REF":data['REF'], \
+                    "nfout": proc_nf,"inputNF":data['inputNF'],
+                    "evalbox":data['evalbox'],'outputGST':data['outputGST']}
+        scipy.io.savemat(matout, data_dict)
+
         (hr,fa), eval_pos = eval_nf(proc_nf,evalline,evalbox,gcoord)
         hr_pos.append(hr)
         fa_pos.append(fa)
+        stat_pos.append(eval_pos)
 
         ppi_file = npz_list[ic]
         print(ppi_file)
@@ -268,12 +300,20 @@ def nffig_proc(case_name,plot_on=False):
         fig.savefig(os.path.join(savedir, ppi_id[:-4]+'.png'))
         plt.close(fig)
 
+    summ_pre = log_stat(os.path.join(savedir, 'stat_pre.npz'),stat_pre)
+    summ_pos = log_stat(os.path.join(savedir, 'stat_pos.npz'),stat_pos)
+    PLD = 1e2*np.sum(summ_pre['hits'])/(np.sum(summ_pre['hits'])+np.sum(summ_pre['miss']))
+    PFD = 1e2*np.sum(summ_pre['fa'])/(np.sum(summ_pre['q_arc']))
+    PLDp = 1e2*np.sum(summ_pos['hits'])/(np.sum(summ_pos['hits'])+np.sum(summ_pos['miss']))
+    PFDp = 1e2*np.sum(summ_pos['fa'])/(np.sum(summ_pos['q_arc']))
+
     figst, axs = plt.subplots(1, 1, figsize=(4/0.65, 3/0.65),dpi=250, gridspec_kw=dict(left=0.08, right=1-0.085, top=1-0.08, bottom=0.06, wspace=0.25, hspace=0.16))
-    axs.plot(tvec,hr_pre, marker='o',label=f'PLD')
-    axs.plot(tvec,np.array(fa_pre), marker='o',label=f'PFD')
-    axs.plot(tvec,hr_pos, marker='o',label=f'filtered PLD')
-    axs.plot(tvec,np.array(fa_pos), marker='o',label=f'filtered PFD')
-    
+
+    axs.plot(tvec,hr_pre,'b-',label=f'PLD : {PLD:.1f}%')
+    axs.plot(tvec,np.array(fa_pre),'r-',label=f'PFD : {PFD:.1f}%')
+    axs.plot(tvec,hr_pos, 'b--',label=f'PLD+ : {PLDp:.1f}%')
+    axs.plot(tvec,np.array(fa_pos), 'r--',label=f'PFD+ : {PFDp:.1f}%')
+    axs.set_ylim(0,100.5)
     axs.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
     figst.autofmt_xdate()
     axs.set_title(case_name,loc='left')

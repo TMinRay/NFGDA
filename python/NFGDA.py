@@ -18,12 +18,12 @@ config.read("NFGDA.ini")
 export_preds_dir = config["Settings"]["export_preds_dir"]
 evalbox_on = config.getboolean('Settings', 'evalbox_on')
 # evalbox_on = True
-
+PARROT_mask_on = True
 angint = 0.5
 rotdegree = 180/9
 rotnum = int(np.round(180/rotdegree))
 rotbackrad = np.deg2rad(rotdegree)
-thrREF = 5
+thrREF = -5
 thrdREF = 0.3
 cellthresh = 5
 cbcellthrsh = 0.8
@@ -301,16 +301,25 @@ def nfgda_proc(case_name):
     label_path = os.path.join('../V06/',case_name,case_name+'_labels')
 
     v6m_path = os.path.join('../mat/','POLAR',case_name)
-    v6m_list = glob.glob(v6m_path + "/polar*npy")
+    v6m_list = glob.glob(v6m_path + "/polar*npz")
     # PARROT0 = np.load('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.npy')
-    PARROT0 = np.load(v6m_list[0])
+    # PARROT0 = np.load(v6m_list[0])['PARROT']
+    PARROT0 = np.load(v6m_list[0])['PARROT']
+    # print(PARROT0.mask)
     interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT0[:,:,0].reshape(-1))
     nf_history = []
 
     for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
         print(ifn)
-        PARROT = np.load(ifn)
-
+        # PARROT = np.load(ifn)['PARROT']
+        PARROT_buf = np.load(ifn)
+        PARROT = PARROT_buf['PARROT']
+        if PARROT_mask_on:
+            PARROT[PARROT_buf['mask']] = np.nan
+        PARROT = np.asfortranarray(PARROT)
+        # print(PARROT.data)
+        # print(PARROT.mask)
+        # exit()
         z1 = PARROT[:,:,0].copy()
         z0 = PARROT0[:,:,0].copy()
         z1[np.isnan(z1)] = 0
@@ -441,9 +450,9 @@ def nfgda_proc(case_name):
         inputNF[:,:,4] = stda
         inputNF[:,:,5] = PARITP[:,:,3] # differential_phase
 
-        pnan = np.isnan(inputNF)
-        pnansum = np.max(pnan,2)
-        inputNF[pnansum,:] = np.nan
+        # pnan = np.isnan(inputNF)
+        # pnansum = np.max(pnan,2)
+        # inputNF[pnansum,:] = np.nan
 
         outputGST = fuzzGST.eval_fis(inputNF)
         hh = outputGST>=0.24
