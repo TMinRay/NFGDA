@@ -16,6 +16,7 @@ main/*.dat
 main/*.png
 main/tracking_points/*/
 main/MIGFA/*.m~
+main/performance_analysis/*/
 MIGFAdat/
 V06
 netcdf
