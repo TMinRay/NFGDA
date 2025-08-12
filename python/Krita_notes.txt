@@ -1,0 +1,6 @@
+import animation frame
+new layer
+timeline---key frame---insert keyframe
+label in layer
+save krita
+render animation
