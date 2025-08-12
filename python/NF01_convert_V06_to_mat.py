@@ -54,7 +54,7 @@ def ReadRadarSliceUpdate(radar, slice_idx):
 
     for radar_product in labels_slice:
         if np.sum(radar.fields[radar_product]['data'][sweep_ind].mask == False) > 0:
-            data_slice.append(radar.fields[radar_product]['data'][sweep_ind].data)
+            data_slice.append(radar.fields[radar_product]['data'][sweep_ind])
             mask_slice.append(True)
             var_mask_slice.append(radar.fields[radar_product]['data'][sweep_ind].mask)
         else:
@@ -79,7 +79,7 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
     for i in range(len(l2_files)):
         l2_file = l2_files[i]
-        if not l2_file.endswith('_V06'):
+        if not (l2_file.endswith('_V06') or l2_file.startswith('._')):
             continue
 
         if i < i_start or i > i_end:
@@ -99,7 +99,7 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
         output_path = os.path.join(output_folder, mat_file)
 
-        py_path = os.path.join(output_folder, mat_file[:-4]+'.npy')
+        py_path = os.path.join(output_folder, mat_file[:-4]+'.npz')
 
         # read l2 data
         radar_obj = pyart.io.read_nexrad_archive(os.path.join(v06_folder, l2_file))
@@ -115,7 +115,8 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
         # slices >= 6 contain all products. normal res.
 
         # Initialize data cube
-        PARROT = np.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)
+        # PARROT = np.ma.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)
+        PARROT = np.ma.array(np.ma.array(np.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)), mask=np.full((END_GATE, NUM_AZ, 6), True))
         in_parrot = np.full(6,False)
 
         for slice_idx in range(nsweeps):
@@ -144,15 +145,21 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
 
                 curr_data = data_slice[i_var][:, :END_GATE]
                 curr_mask = data_mask_slice[i_var][:, :END_GATE]
-                curr_data[curr_mask] = np.nan  # (720, 400)
+                # curr_data[curr_mask] = np.nan  # (720, 400)
                 curr_data = np.roll(a=curr_data, shift=az_shift, axis=0)
                 PARROT[:, :, i_parrot] = curr_data.T
+                # PARROT[:, :, i_parrot].data = curr_data.T
+                # PARROT[:, :, i_parrot].mask = curr_mask.T
+                # print(PARROT.mask)
+                # exit()
             if np.min(in_parrot):
                 break
             print()
         print()
         scipy.io.savemat(output_path, {"PARROT": PARROT})
-        np.save(py_path, np.asfortranarray(PARROT))
+        # np.save(py_path, np.asfortranarray(PARROT))
+        np.savez(py_path, PARROT=PARROT.data,mask=PARROT.mask)
+        # np.save(py_path, PARROT)
 
     return
 
