@@ -322,8 +322,8 @@ def nfgda_proc(case_name):
         # exit()
         z1 = PARROT[:,:,0].copy()
         z0 = PARROT0[:,:,0].copy()
-        z1[np.isnan(z1)] = 0
-        z0[np.isnan(z0)] = 0
+        # z1[np.isnan(z1)] = 0
+        # z0[np.isnan(z0)] = 0
         diffz = z1-z0
 
         PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
@@ -456,6 +456,7 @@ def nfgda_proc(case_name):
 
         outputGST = fuzzGST.eval_fis(inputNF)
         hh = outputGST>=0.24
+        # hh = outputGST>=0.6
         hGST = medfilt2d(hh.astype(float), kernel_size=3)
 
         # smoothedhGST = gaussian_filter(hGST, sigma=1, mode='nearest')
@@ -472,8 +473,17 @@ def nfgda_proc(case_name):
                     "nfout": skel_nfout2,"inputNF":inputNF}
         if evalbox_on:
             mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
-            handpick = scipy.io.loadmat(mhandpick)
-            data_dict.update({"evalbox":handpick['evalbox'],'outputGST':outputGST})
+            try:
+                handpick = scipy.io.loadmat(mhandpick)
+                evalbox = handpick['evalbox']
+            except:
+                print(f'Warning: No {mhandpick} filling zeros.')
+                evalbox = np.zeros(Cx.shape)
+            interpolator.values = diffz.reshape(-1,1)
+            diffz = interpolator(Cx, Cy)
+            data_dict.update({"evalbox":evalbox, \
+                "diffz": diffz, \
+                'outputGST':outputGST})
 
         scipy.io.savemat(matout, data_dict)
         np.savez(matout[:-3]+'npz', **data_dict)
