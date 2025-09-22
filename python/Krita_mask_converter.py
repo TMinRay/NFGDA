@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from tminlib.utility import *
 import configparser
 import os
+from skimage.filters import median
+from skimage.morphology import erosion, disk
 
 config = configparser.ConfigParser()
 config.read("./NFGDA.ini")
@@ -86,7 +88,8 @@ for ppi_file, krita_mask in zip(npz_list,evalboxfn):
     print(ppi_file, krita_mask)
     mask = load_mask_image_as_red_binary(krita_mask)
 # fn = "/mnt/k/OU/NFGDA/NFGDA/python/tracking_points/label/KABX20250712_20/mask/frame0000.png"
-    mask_vals = get_mask_values_from_xy(Cx, Cy, mask)
+    # mask_vals = get_mask_values_from_xy(Cx, Cy, mask)
+    mask_vals = erosion(median(get_mask_values_from_xy(Cx, Cy, mask), footprint=np.ones((4,4), dtype=bool)), disk(1))
     scipy.io.savemat(os.path.join(labeldir, '_'.join(os.path.basename(ppi_file).split('_')[-3:])[:-4]+'.mat'), {'evalbox': mask_vals})
 
         # fig.savefig(os.path.join(labeldir, ))
