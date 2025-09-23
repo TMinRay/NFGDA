@@ -156,10 +156,8 @@ def convert_v06_to_mat(v06_folder, case_id, mat_folder, i_start, i_end):
                 break
             print()
         print()
-        scipy.io.savemat(output_path, {"PARROT": PARROT})
-        # np.save(py_path, np.asfortranarray(PARROT))
+        # scipy.io.savemat(output_path, {"PARROT": PARROT})
         np.savez(py_path, PARROT=PARROT.data,mask=PARROT.mask)
-        # np.save(py_path, PARROT)
 
     return
 
