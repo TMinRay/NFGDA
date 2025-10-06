@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import tminlib.colorlevel as cl
 from tminlib import plot_helper as phelp
+from tminlib import math_kit as mk
 from datetime import datetime, timedelta
 from skimage.morphology import skeletonize, disk, binary_dilation, binary_erosion, remove_small_objects, dilation
 from skimage.measure import label
@@ -24,6 +25,12 @@ config.read("./NFGDA.ini")
 export_preds_dir = config["Settings"]["export_preds_dir"]
 evalbox_on = config.getboolean('Settings', 'evalbox_on')
 fig_dir = config["Settings"]["fig_dir"]
+label_on = config.getboolean('labels', 'label_on')
+
+if label_on:
+    label_loc = list(map(float,config.get("labels", "loc").split(",")))
+    radar_loc = list(map(float,config.get("labels", "rloc").split(",")))
+    sitex, sitey = mk.geopoints_to_relative_xy(radar_loc,label_loc)
 # export_statistics_dir = config["Settings"]["export_statistics_dir"]
 # os.makedirs(export_statistics_dir,exist_ok=True)
 export_preds_fapos_dir = export_preds_dir[:-1]+'_pos/'
@@ -235,8 +242,11 @@ def nffig_proc(case_name,plot_on=False):
     stat_pre = []
     stat_pos = []
     for ic,data in enumerate(wgfspace.data[:-1]):
-        evalbox = data['evalbox']
-        evalline = skeletonize(data['evalbox'])
+        if evalbox_on:
+            evalbox = data['evalbox']
+        else:
+            evalbox = np.zeros(Cx.shape)
+        evalline = skeletonize(evalbox)
         gcoord = {'Cx':data['xi2'],'Cy':data['yi2']}
         (hr,fa), eval_pre = eval_nf(data['nfout'],evalline,evalbox,gcoord)
         hr_pre.append(hr)
@@ -247,7 +257,8 @@ def nffig_proc(case_name,plot_on=False):
         matout = export_preds_fapos_event + '/' + npz_list[ic].split('/')[-1]
         data_dict = {"xi2":data['xi2'],"yi2":data['yi2'],"REF":data['REF'], \
                     "nfout": proc_nf,"inputNF":data['inputNF'],
-                    "evalbox":data['evalbox'],'outputGST':data['outputGST']}
+                    "evalbox":evalbox}
+                    # ,'outputGST':data['outputGST']}
         scipy.io.savemat(matout, data_dict)
 
         (hr,fa), eval_pos = eval_nf(proc_nf,evalline,evalbox,gcoord)
@@ -274,7 +285,7 @@ def nffig_proc(case_name,plot_on=False):
         pdata = np.ma.masked_where(rmask,REF)
 
         def plot_nf(ax,nfout,hrt,fat,evalmasks):
-            evalbox = data['evalbox']
+            # evalbox = data['evalbox']
             nfloc = np.logical_and(~rmask,nfout)
             # nfpredict = dilation(nfloc, disk(5))
             # Mhits = np.logical_and(evalline,nfpredict)
@@ -297,6 +308,9 @@ def nffig_proc(case_name,plot_on=False):
             phelp.add_cbar(ax.collections[0],fig,ax,unit_text = varunit_table['Zh'],size='3%')
         plot_nf(axs[0],data['nfout'],hr_pre[-1],fa_pre[-1],eval_pre)
         plot_nf(axs[1],proc_nf,hr_pos[-1],fa_pos[-1],eval_pos)
+        if label_on:
+            axs[0].plot(sitex/1e3, sitey/1e3, 'r*', markersize=8)
+            axs[1].plot(sitex/1e3, sitey/1e3, 'r*', markersize=8)
         fig.savefig(os.path.join(savedir, ppi_id[:-4]+'.png'))
         plt.close(fig)
 
@@ -311,8 +325,8 @@ def nffig_proc(case_name,plot_on=False):
 
     axs.plot(tvec,hr_pre,'b-',label=f'PLD : {PLD:.1f}%')
     axs.plot(tvec,np.array(fa_pre),'r-',label=f'PFD : {PFD:.1f}%')
-    axs.plot(tvec,hr_pos, 'b--',label=f'PLD+ : {PLDp:.1f}%')
-    axs.plot(tvec,np.array(fa_pos), 'r--',label=f'PFD+ : {PFDp:.1f}%')
+    axs.plot(tvec,hr_pos, 'b--',label=f'PLD* : {PLDp:.1f}%')
+    axs.plot(tvec,np.array(fa_pos), 'r--',label=f'PFD* : {PFDp:.1f}%')
     axs.set_ylim(0,100.5)
     axs.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
     figst.autofmt_xdate()
