@@ -24,3 +24,4 @@ NFFIG
 IMG/*mat
 ieee2016
 python/tracking_points/*/
+python/.ipynb_checkpoints/
