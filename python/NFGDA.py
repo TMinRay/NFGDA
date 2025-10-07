@@ -12,6 +12,8 @@ import glob
 import sys
 import os
 import configparser
+from tminlib.utility import *
+from datetime import datetime
 
 config = configparser.ConfigParser()
 config.read("NFGDA.ini")
@@ -57,14 +59,100 @@ Celldpw = np.load("Celldpw.npy")
 # # plt.plot(Celldp[:,:,0],Celldp[:,:,1],'o')
 # # plt.show()
 
+def rot_displace(dp,origindeg):
+    dpvector = np.swapaxes(dp,1,2)
+    origindeg = origindeg*np.pi/180
+    backprocess = np.array([[np.cos(origindeg),np.sin(origindeg)], \
+                            [-np.sin(origindeg),np.cos(origindeg)]])
+    rotcord = np.matmul(backprocess,dpvector)
+    rotidx = np.round(rotcord)
+    return np.swapaxes(rotidx,1,2)
+
+def make_ftc_cscore(c_para):
+    cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+    def f(cbox):
+        # params is captured from outer scope
+        llscore = np.zeros(cbox.shape)
+        # llscore = np.full(cbox.shape,np.nan)
+        llscore[cbox<=cnum1] = gaussmf(cbox[cbox<=cnum1], csig1, cnum1)*cfactor1+cintersec1
+        llscore[np.logical_and(cbox>cnum1, cbox<=cnum2)] = cyfill
+        llscore[cbox>cnum2] = gaussmf(cbox[cbox>cnum2], csig2, cnum2)*cfactor2+cintersec2
+        return llscore
+    return f
+
+def make_ftc_sscore(s_para):
+    snum1, snum2, ssig1, sfactor1, sintersec1, ssig2, sfactor2, sintersec2, syfill = s_para
+    def f(sbox):
+        # params is captured from outer scope
+        ssscore = np.zeros(sbox.shape)
+        # ssscore = np.full(sbox.shape,np.nan)
+        ssscore[sbox<snum1] = syfill
+        con1 = np.logical_and(sbox>=snum1, sbox<=snum2)
+        con2 = sbox>snum2
+        ssscore[con1] = gaussmf(sbox[con1], ssig1, snum1)*sfactor1 + sintersec1
+        ssscore[con2] = gaussmf(sbox[con2], ssig2, snum2)*sfactor2 + sintersec2
+        return ssscore
+    return f
+
+class FTC_PLAN:
+    def __init__(self,displace,scorefun,scale):
+        self.displace = displace
+        self.scorefun = scorefun
+        self.numINT = np.max(np.abs(displace))
+        self.scale = scale
+    def gather_pixels(self,ar,center):
+        # idx [direction, displacement, center_pixel, yx]
+        idx = (center[np.newaxis,np.newaxis,:,:] + self.displace).astype(int)
+        return ar[idx[:,:,:,0],idx[:,:,:,1]]
+    def get_score(self,ar,center):
+        cbox = self.gather_pixels(ar,center)
+        pixel_score = self.scorefun(cbox)
+        # pixel_score[np.isnan(pixel_score)] = -3
+        return np.nansum(pixel_score,axis=1)
+
+def gen_beta(a2,a2_thr,ftcs):
+    center_indices = np.argwhere(a2>a2_thr)
+    c_indices = clean_indices(center_indices, a2.shape, ftcs[0].numINT)
+    total_score = ftcs[0].get_score(a2,c_indices)
+    score_scale = ftcs[0].scale*ftcs[0].displace.shape[1]
+    for ftcplan in ftcs[1:]:
+        total_score += ftcplan.get_score(a2,c_indices)
+        score_scale += ftcplan.scale*ftcplan.displace.shape[1]
+    total_score = np.max(total_score,axis=0)
+    scoremt = np.zeros(a2.shape)
+    scoremt[c_indices[:,0],c_indices[:,1]] = total_score/score_scale
+    return scoremt
+
 datacy = np.arange(-8,9).reshape(1,-1)
 datacx = np.zeros((1,17))
 datac = np.swapaxes(np.array([datacy,datacx]),0,2)
-# datac = np.swapaxes(np.array([datacx,datacy]),0,2)
+
 datasy = np.array([*np.arange(-7,0,2),0,*np.arange(1,8,2),*np.arange(-7,0,2),0,*np.arange(1,8,2)]).reshape(1,-1)
 datasx = np.array([-4*np.ones((9)),4*np.ones((9))]).reshape(1,-1)
 datas = np.swapaxes(np.array([datasy,datasx]),0,2)
-# datas = np.swapaxes(np.array([datasx,datasy]),0,2)
+
+ftcc=[]
+ftcs=[]
+
+# angint = 0.5
+rotdegree = 180/9
+# rotnum = int(np.round(180/rotdegree))
+# rotbackrad = np.deg2rad(rotdegree)
+for irot in np.arange(0,180,rotdegree):
+    # indi = int(rotdegree*irot/angint)
+    ftcc.append(rot_displace(datac,irot))
+    ftcs.append(rot_displace(datas,irot))
+ftcc = np.array(ftcc)
+ftcs = np.array(ftcs)
+
+# datacy = np.arange(-8,9).reshape(1,-1)
+# datacx = np.zeros((1,17))
+# datac = np.swapaxes(np.array([datacy,datacx]),0,2)
+# # datac = np.swapaxes(np.array([datacx,datacy]),0,2)
+# datasy = np.array([*np.arange(-7,0,2),0,*np.arange(1,8,2),*np.arange(-7,0,2),0,*np.arange(1,8,2)]).reshape(1,-1)
+# datasx = np.array([-4*np.ones((9)),4*np.ones((9))]).reshape(1,-1)
+# datas = np.swapaxes(np.array([datasy,datasx]),0,2)
+# # datas = np.swapaxes(np.array([datasx,datasy]),0,2)
 
 mvdiscx = np.zeros((17,17))
 mvdiscy = np.zeros((17,17))
@@ -92,75 +180,75 @@ def clean_indices(idx,shp,edg):
     inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
     return idx[inbox,:]
 
-def gen_tot_score(a2,c_para,s_para,thrREF,numINT,scorediv):
-    cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
-    center_indices = np.argwhere(a2>thrREF)
-    c_indices = clean_indices(center_indices, a2.shape, numINT)
-    # dim0 = center_indices[:,0]
-    # dim1 = center_indices[:,1]
-    # inbox = (dim0>=numINT) & (dim0< a2.shape[0]-numINT) & (dim1>=numINT) & (dim1< a2.shape[1]-numINT)
-    # c_indices = center_indices[inbox,:]
-    cidx = (c_indices[np.newaxis,:,:] + datac).astype(int)
+# def gen_tot_score(a2,c_para,s_para,thrREF,numINT,scorediv):
+#     cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+#     center_indices = np.argwhere(a2>thrREF)
+#     c_indices = clean_indices(center_indices, a2.shape, numINT)
+#     # dim0 = center_indices[:,0]
+#     # dim1 = center_indices[:,1]
+#     # inbox = (dim0>=numINT) & (dim0< a2.shape[0]-numINT) & (dim1>=numINT) & (dim1< a2.shape[1]-numINT)
+#     # c_indices = center_indices[inbox,:]
+#     cidx = (c_indices[np.newaxis,:,:] + datac).astype(int)
 
-    cbox = a2[cidx[:,:,0],cidx[:,:,1]]
-    cbr = np.sum(cbox>thrREF,0)/datacx.size
-    cbox = cbox[:,cbr>0.5]
+#     cbox = a2[cidx[:,:,0],cidx[:,:,1]]
+#     cbr = np.sum(cbox>thrREF,0)/datacx.size
+#     cbox = cbox[:,cbr>0.5]
 
-    s_indices = c_indices[cbr>0.5,:]
-    sidx = (s_indices[np.newaxis,:,:] + datas).astype(int)
-    sbox = a2[sidx[:,:,0],sidx[:,:,1]]
+#     s_indices = c_indices[cbr>0.5,:]
+#     sidx = (s_indices[np.newaxis,:,:] + datas).astype(int)
+#     sbox = a2[sidx[:,:,0],sidx[:,:,1]]
 
-    llscore = np.zeros(cbox.shape)
-    llscore[cbox<=cnum1] = gaussmf(cbox[cbox<=cnum1], csig1, cnum1)*cfactor1+cintersec1
-    llscore[np.logical_and(cbox>cnum1, cbox<=cnum2)] = cyfill;
-    llscore[cbox>cnum2] = gaussmf(cbox[cbox>cnum2], csig2, cnum2)*cfactor2+cintersec2;
-    clscore = np.nansum(llscore,0)
+#     llscore = np.zeros(cbox.shape)
+#     llscore[cbox<=cnum1] = gaussmf(cbox[cbox<=cnum1], csig1, cnum1)*cfactor1+cintersec1
+#     llscore[np.logical_and(cbox>cnum1, cbox<=cnum2)] = cyfill;
+#     llscore[cbox>cnum2] = gaussmf(cbox[cbox>cnum2], csig2, cnum2)*cfactor2+cintersec2;
+#     clscore = np.nansum(llscore,0)
 
-    snum1, snum2, ssig1, sfactor1, sintersec1, ssig2, sfactor2, sintersec2, syfill = s_para
+#     snum1, snum2, ssig1, sfactor1, sintersec1, ssig2, sfactor2, sintersec2, syfill = s_para
 
-    con1 = np.logical_and(sbox>=snum1, sbox<=snum2)
-    con2 = sbox>snum2
+#     con1 = np.logical_and(sbox>=snum1, sbox<=snum2)
+#     con2 = sbox>snum2
 
-    ssscore = np.zeros(sbox.shape)
-    ssscore[sbox<snum1] = syfill;
-    ssscore[con1] = gaussmf(sbox[con1], ssig1, snum1)*sfactor1 + sintersec1;
-    ssscore[con2]=gaussmf(sbox[con2], ssig2, snum2)*sfactor2 + sintersec2;
-    sdscore = np.nansum(ssscore,0)
+#     ssscore = np.zeros(sbox.shape)
+#     ssscore[sbox<snum1] = syfill;
+#     ssscore[con1] = gaussmf(sbox[con1], ssig1, snum1)*sfactor1 + sintersec1;
+#     ssscore[con2]=gaussmf(sbox[con2], ssig2, snum2)*sfactor2 + sintersec2;
+#     sdscore = np.nansum(ssscore,0)
 
-    pretotscore = sdscore+clscore
-    pretotscore = pretotscore/scorediv
-    pretotscore[pretotscore<0] = 0
-    scoremt = np.zeros(a2.shape)
-    scoremt[s_indices[:,0],s_indices[:,1]]=pretotscore
-    return scoremt
+#     pretotscore = sdscore+clscore
+#     pretotscore = pretotscore/scorediv
+#     pretotscore[pretotscore<0] = 0
+#     scoremt = np.zeros(a2.shape)
+#     scoremt[s_indices[:,0],s_indices[:,1]]=pretotscore
+#     return scoremt
 
-def rot_score_back(a2,origindeg):
-    # backprocess = np.array([[np.cos(origindeg),np.sin(origindeg)], \
-    #                         [-np.sin(origindeg),np.cos(origindeg)]])
-    backprocess = np.array([[np.cos(origindeg),-np.sin(origindeg)], \
-                            [np.sin(origindeg),np.cos(origindeg)]])
-    center_indices = np.argwhere(a2>0)
-    # center_indices[points,coord] ::  coord = [y x]
-    rotcord = center_indices/2 - 100
-    # xyv = np.zeros(rotcord.shape)
-    # xyv[:,0] = rotcord[:,1]
-    # xyv[:,1] = rotcord[:,0]
-    # print(rotcord.shape)
-    oldcord = np.matmul(backprocess,rotcord[:,:,np.newaxis])
-    # oldcord = np.matmul(backprocess,xyv[:,:,np.newaxis])
-    oldidx = np.squeeze( np.round((oldcord+100)*2), axis=-1 )
+# def rot_score_back(a2,origindeg):
+#     # backprocess = np.array([[np.cos(origindeg),np.sin(origindeg)], \
+#     #                         [-np.sin(origindeg),np.cos(origindeg)]])
+#     backprocess = np.array([[np.cos(origindeg),-np.sin(origindeg)], \
+#                             [np.sin(origindeg),np.cos(origindeg)]])
+#     center_indices = np.argwhere(a2>0)
+#     # center_indices[points,coord] ::  coord = [y x]
+#     rotcord = center_indices/2 - 100
+#     # xyv = np.zeros(rotcord.shape)
+#     # xyv[:,0] = rotcord[:,1]
+#     # xyv[:,1] = rotcord[:,0]
+#     # print(rotcord.shape)
+#     oldcord = np.matmul(backprocess,rotcord[:,:,np.newaxis])
+#     # oldcord = np.matmul(backprocess,xyv[:,:,np.newaxis])
+#     oldidx = np.squeeze( np.round((oldcord+100)*2), axis=-1 )
 
-    mappxl = np.logical_and( oldidx[:,0]>=0, np.logical_and(oldidx[:,0]<a2.shape[0],\
-     np.logical_and(oldidx[:,1]>=0,oldidx[:,1]<a2.shape[1])))
+#     mappxl = np.logical_and( oldidx[:,0]>=0, np.logical_and(oldidx[:,0]<a2.shape[0],\
+#      np.logical_and(oldidx[:,1]>=0,oldidx[:,1]<a2.shape[1])))
 
-    center_indices = center_indices[mappxl,:].astype(int)
-    oldidx = oldidx[mappxl,:].astype(int)
-    # print(center_indices.shape)
-    # print(a2[center_indices[:,0],center_indices[:,1]].shape)
-    buf = np.zeros(a2.shape);
-    # buf[oldidx[:,1],oldidx[:,0]]=a2[center_indices[:,0],center_indices[:,1]]
-    buf[oldidx[:,0],oldidx[:,1]]=a2[center_indices[:,0],center_indices[:,1]]
-    return buf
+#     center_indices = center_indices[mappxl,:].astype(int)
+#     oldidx = oldidx[mappxl,:].astype(int)
+#     # print(center_indices.shape)
+#     # print(a2[center_indices[:,0],center_indices[:,1]].shape)
+#     buf = np.zeros(a2.shape);
+#     # buf[oldidx[:,1],oldidx[:,0]]=a2[center_indices[:,0],center_indices[:,1]]
+#     buf[oldidx[:,0],oldidx[:,1]]=a2[center_indices[:,0],center_indices[:,1]]
+#     return buf
 
 def probor(ar):
     buf = np.zeros(ar.shape[:-1])
@@ -304,52 +392,46 @@ def nfgda_proc(case_name):
     v6m_list = glob.glob(v6m_path + "/polar*npz")
     # PARROT0 = np.load('../mat/POLAR/KABX20200705_21/polar_03_KABX20200705_212755_V06.npy')
     # PARROT0 = np.load(v6m_list[0])['PARROT']
-    PARROT0 = np.load(v6m_list[0])['PARROT']
-    # print(PARROT0.mask)
+    PARROT_buf = np.load(v6m_list[0])
+    PARROT0 = PARROT_buf['PARROT']
+    if PARROT_mask_on:
+        PARROT0[PARROT_buf['mask']] = np.nan
+    PARROT0 = np.asfortranarray(PARROT0)
+
     interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT0[:,:,0].reshape(-1))
     nf_history = []
 
     for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
+        # ifn = v6m_list[iv6m+1]
         print(ifn)
-        # PARROT = np.load(ifn)['PARROT']
         PARROT_buf = np.load(ifn)
         PARROT = PARROT_buf['PARROT']
         if PARROT_mask_on:
             PARROT[PARROT_buf['mask']] = np.nan
         PARROT = np.asfortranarray(PARROT)
-        # print(PARROT.data)
-        # print(PARROT.mask)
-        # exit()
+        
         z1 = PARROT[:,:,0].copy()
         z0 = PARROT0[:,:,0].copy()
-        # z1[np.isnan(z1)] = 0
-        # z0[np.isnan(z0)] = 0
         diffz = z1-z0
-
+        
         PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
-
+        
         for iv in [0,1,3,4,5]:
-        # for iv in [1]:
             if iv == 3:
                 sdphi=np.zeros((*RegPolarX.shape,5))
                 phi = PARROT[:,:,iv]
                 phi[phi<0] = np.nan
                 phi[phi>360] = np.nan
-                # NR = phi.shape[0]
-                # for displaceR in range(-2,3):
-                #     sdphi[4:-2,:,displaceR+2] = phi[4+displaceR:NR-2+displaceR,:]
                 sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
                 interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
             else:
                 # interpolator.values = PARROT[1:,:,iv].reshape(-1,1)
                 interpolator.values = PARROT[:,:,iv].reshape(-1,1)
             PARITP[:,:,iv] = interpolator(Cx, Cy)
-        # toc = time.time()  # End timer
-        # print(f"Elapsed time: {toc - tic:.6f} seconds")
-        scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
-
+        # scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
+        
         # tic = time.time()  # Start timer
-
+        
         V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
         V_window = V_window.reshape((*V_window.shape[:2],-1))
         cbr = np.sum(~np.isnan(V_window),axis = 2)/9
@@ -357,102 +439,276 @@ def nfgda_proc(case_name):
         SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
         stda = np.zeros(Cx.shape)
         stda[1:-1,1:-1] = SD_buf
-        scipy.io.savemat('../mat/pystda.mat', {"stda": stda})
-
-        oriz = PARROT[:,:,0]
-        orirot = diffz
-        zoriginscore = np.zeros((*Cx.shape,rotnum))
-        originscore = np.zeros((*Cx.shape,rotnum))
-        for irot in range(rotnum):
-            indi = int(rotdegree*irot/angint)
-            origindeg = rotbackrad*irot
-            rotz = np.roll(oriz, shift=indi, axis=1)
-            interpolator.values = rotz.reshape(-1,1)
-            rotgz = interpolator(Cx, Cy)
-            ztotscore = gen_tot_score(rotgz, \
-                [15, 20, 3, 3, -1, 12, 4, -2, 3], \
-                [0, 5, 5, 2,-1, 5, 3,-3, 1], \
-                thrREF,10,(3*17+1*18))
-
-            zoriginscore[:,:,irot] = rot_score_back(ztotscore,-origindeg)
-
-            roted = np.roll(orirot, shift=indi, axis=1)
-            interpolator.values = roted.reshape(-1,1)
-            rotitp = interpolator(Cx, Cy)
-            delztotscore = gen_tot_score(rotitp, \
-                [5,10,4,3,-2,9,4,-3,2], \
-                [-10,5,5,2,-1,8,2,-3,1], \
-                thrdREF, 8, (2*17+1*18))
-            originscore[:,:,irot] = rot_score_back(delztotscore,-origindeg)
-
-
-        linez = np.max(zoriginscore,2)
-        linedelz = np.max(originscore,2)
-
+        
+        
         a2 = PARITP[:,:,0]
-
+        
         center_indices = np.argwhere(a2>cellthresh)
         c_indices = clean_indices(center_indices, a2.shape, cellINT)
-
+        
         cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
         cbox = a2[cidx[:,:,0],cidx[:,:,1]]
         cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
         cbox = cbox[:,cbr>cbcellthrsh]
         c_indices = c_indices[cbr>cbcellthrsh,:]
-
+        
         llscore = np.zeros(cbox.shape)
         llscore[cbox<=s2xnum[0]] = s2ynum[0]
         pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
         llscore[pp] = s2g*cbox[pp]+s2gc
         llscore[cbox>=s2xnum[1]] = s2ynum[1]
         clscore = np.nansum(llscore,0)/Celldp.shape[0]
-        clscore = clscore/Celldp.shape[0]
+        # clscore = clscore/Celldp.shape[0]
         totscore = np.zeros(Cx.shape)
         totscore[c_indices[:,0],c_indices[:,1]] = clscore
         CELLline = medfilt2d(totscore, kernel_size=11)
-
+        
         a2 = CELLline
-
+        
         center_indices = np.argwhere(a2>cellcsrthresh)
         c_indices = clean_indices(center_indices, a2.shape, widecellINT)
-
+        
         cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
         cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
         cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
-        center_indices = center_indices[cbr<1,:]
-        cidx = (c_indices[np.newaxis,:,:] + Celldpw).astype(int)
-
-        a2[cidx[:,:,0],cidx[:,:,1]] = 1
+        center_indices = c_indices[cbr<1,:]
+        cidx = (center_indices[np.newaxis,:,:] + Celldpw).astype(int)
+        
+        # a2[cidx[:,:,0],cidx[:,:,1]] = 1
         widecellz = a2>0.5
+        print(f'widecellz min {np.min(widecellz)}, max {np.max(widecellz)}')
+        if np.max(widecellz):
+            red_print('widecellz is not all False')
+        # # # %%%%%%%%%%%%%%      ../IMG/exe_3_img_exe.m
+        # pbeta = (linez+linedelz)/2
+        # pbeta[np.isnan(PARITP[:,:,0])] = np.nan
+        # beta = pbeta-widecellz
+        # beta[beta<0] = 0
+        
+        mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
+        try:
+            handpick = scipy.io.loadmat(mhandpick)
+            evalbox = handpick['evalbox']
+        except:
+            print(f'Warning: No {mhandpick} filling zeros.')
+            evalbox = np.zeros(Cx.shape)
+        
+        
+        interpolator.values = PARROT[:,:,0].reshape(-1,1)
+        rotgz = interpolator(Cx, Cy)
+        interpolator.values = diffz.reshape(-1,1)
+        rotitp = interpolator(Cx, Cy)
+        
+        tic = time.time()  # Start timer
+        # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+        z_cfun = make_ftc_cscore([15, 20, 3, 3, -1, 12, 4, -2, 3])
+        z_sfun = make_ftc_sscore([0, 5, 5, 2,-1, 5, 3,-3, 1])
+        zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
+        zbeta = gen_beta(rotgz,thrREF,zftcs)
+        dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
+        dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
+        dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
+        dzbeta = gen_beta(rotitp,thrdREF,dzftcs)
+        zbeta[zbeta<0]=0
+        dzbeta[dzbeta<0]=0
+        toc = time.time()  # End timer
+        print(f"Elapsed time: {toc - tic:.6f} seconds")
+        
+        
+        beta0 = (zbeta+dzbeta)/2
+        
+        # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+        c_para = [15, 20, 3, 3, -1, 12, 4, -2, 3]
+        s_para = [0, 5, 5, 2,-1, 5, 3,-3, 1]
+        # c_para = [3, 8, 3, 3, -1, 12, 4, -2, 3]
+        # s_para = [-8, -3, 5, 2,-1, 5, 3,-3, 1]
+        
+        z_cfun = make_ftc_cscore(c_para)
+        z_sfun = make_ftc_sscore(s_para)
+        
+        zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
+        zbeta = gen_beta(rotgz,thrREF,zftcs)
+        
+        dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
+        dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
+        # dz_cfun = make_ftc_cscore([10,20,4,3,-2,9,4,-3,2])
+        # dz_sfun = make_ftc_sscore([-5,0,5,2,-1,8,2,-3,1])
 
-
-        # # %%%%%%%%%%%%%%      ../IMG/exe_3_img_exe.m
-        pbeta = (linez+linedelz)/2
-        pbeta[np.isnan(PARITP[:,:,0])] = np.nan
-        beta = pbeta-widecellz
-        beta[beta<0] = 0
-
-
-        # %%%%%%%%%%%%%%      NF06_calc_6variables_preprocessing
+        # dz_cfun = make_ftc_cscore([0,10,4,3,-2,9,4,-3,2])
+        # dz_sfun = make_ftc_sscore([-10,-5,5,2,-1,8,2,-3,1])
+        
+        dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
+        dzbeta = gen_beta(rotitp,thrdREF,dzftcs)
+        zbeta[zbeta<0]=0
+        dzbeta[dzbeta<0]=0
+        
+        beta = (zbeta+dzbeta)/2
+        
+        
+        ppi_file ='nf_pred'+os.path.basename(ifn)[5:-3]+'mat'
+        ppi_id = os.path.basename(ppi_file)
+        ppi_name = ppi_id[11:]  # MATLAB 12:end is Python 11: (0-based)
+        date_part = ppi_name[4:12]   # 5:12 in MATLAB → 4:12 in Python
+        time_part = ppi_name[13:19]
+        
+        radar_id = ppi_name[0:4]  # 1:4 in MATLAB → 0:4 in Python
+        tstamp_date = datetime.strptime(date_part, "%Y%m%d")
+        tstamp_time = datetime.strptime(time_part, "%H%M%S").time()
+        tstamp = datetime.combine(tstamp_date.date(), tstamp_time)
+        # tvec.append(tstamp)
+        ppi_desc = f"{radar_id}, {tstamp.strftime('%m/%d/%Y, %H:%M:%S %Z')}"
+        
         inputNF = np.zeros((*Cx.shape,6))
-            # % inputNF(:,:,1)=PARITP(:,:,1);
-            # % inputNF(:,:,2)=beta;
-            # % inputNF(:,:,3)=PARITP(:,:,6);
-            # % inputNF(:,:,4)=PARITP(:,:,5);
-            # % inputNF(:,:,5)=stda(:,:,2);
-            # % inputNF(:,:,6)=PARITP(:,:,4);
-
-            # %%%%%%%%%%%%%%      direct layout for fis input
         inputNF[:,:,0] = beta
         inputNF[:,:,1] = PARITP[:,:,0] # reflectivity
         inputNF[:,:,2] = PARITP[:,:,4] # cross_correlation_ratio
         inputNF[:,:,3] = PARITP[:,:,5] # differential_reflectivity
         inputNF[:,:,4] = stda
-        inputNF[:,:,5] = PARITP[:,:,3] # differential_phase
+        inputNF[:,:,5] = PARITP[:,:,3]
+        
+        # print(ifn)
+        # # PARROT = np.load(ifn)['PARROT']
+        # PARROT_buf = np.load(ifn)
+        # PARROT = PARROT_buf['PARROT']
+        # if PARROT_mask_on:
+        #     PARROT[PARROT_buf['mask']] = np.nan
+        # PARROT = np.asfortranarray(PARROT)
+        # # print(PARROT.data)
+        # # print(PARROT.mask)
+        # # exit()
+        # z1 = PARROT[:,:,0].copy()
+        # z0 = PARROT0[:,:,0].copy()
+        # # z1[np.isnan(z1)] = 0
+        # # z0[np.isnan(z0)] = 0
+        # diffz = z1-z0
 
-        # pnan = np.isnan(inputNF)
-        # pnansum = np.max(pnan,2)
-        # inputNF[pnansum,:] = np.nan
+        # PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
+
+        # for iv in [0,1,3,4,5]:
+        # # for iv in [1]:
+        #     if iv == 3:
+        #         sdphi=np.zeros((*RegPolarX.shape,5))
+        #         phi = PARROT[:,:,iv]
+        #         phi[phi<0] = np.nan
+        #         phi[phi>360] = np.nan
+        #         # NR = phi.shape[0]
+        #         # for displaceR in range(-2,3):
+        #         #     sdphi[4:-2,:,displaceR+2] = phi[4+displaceR:NR-2+displaceR,:]
+        #         sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
+        #         interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
+        #     else:
+        #         # interpolator.values = PARROT[1:,:,iv].reshape(-1,1)
+        #         interpolator.values = PARROT[:,:,iv].reshape(-1,1)
+        #     PARITP[:,:,iv] = interpolator(Cx, Cy)
+        # # toc = time.time()  # End timer
+        # # print(f"Elapsed time: {toc - tic:.6f} seconds")
+        # scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
+
+        # # tic = time.time()  # Start timer
+
+        # V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
+        # V_window = V_window.reshape((*V_window.shape[:2],-1))
+        # cbr = np.sum(~np.isnan(V_window),axis = 2)/9
+        # SD_buf = np.zeros(V_window.shape[:2])
+        # SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
+        # stda = np.zeros(Cx.shape)
+        # stda[1:-1,1:-1] = SD_buf
+        # scipy.io.savemat('../mat/pystda.mat', {"stda": stda})
+
+        # oriz = PARROT[:,:,0]
+        # orirot = diffz
+        # zoriginscore = np.zeros((*Cx.shape,rotnum))
+        # originscore = np.zeros((*Cx.shape,rotnum))
+        # for irot in range(rotnum):
+        #     indi = int(rotdegree*irot/angint)
+        #     origindeg = rotbackrad*irot
+        #     rotz = np.roll(oriz, shift=indi, axis=1)
+        #     interpolator.values = rotz.reshape(-1,1)
+        #     rotgz = interpolator(Cx, Cy)
+        #     ztotscore = gen_tot_score(rotgz, \
+        #         [15, 20, 3, 3, -1, 12, 4, -2, 3], \
+        #         [0, 5, 5, 2,-1, 5, 3,-3, 1], \
+        #         thrREF,10,(3*17+1*18))
+
+        #     zoriginscore[:,:,irot] = rot_score_back(ztotscore,-origindeg)
+
+        #     roted = np.roll(orirot, shift=indi, axis=1)
+        #     interpolator.values = roted.reshape(-1,1)
+        #     rotitp = interpolator(Cx, Cy)
+        #     delztotscore = gen_tot_score(rotitp, \
+        #         [5,10,4,3,-2,9,4,-3,2], \
+        #         [-10,5,5,2,-1,8,2,-3,1], \
+        #         thrdREF, 8, (2*17+1*18))
+        #     originscore[:,:,irot] = rot_score_back(delztotscore,-origindeg)
+
+
+        # linez = np.max(zoriginscore,2)
+        # linedelz = np.max(originscore,2)
+
+        # a2 = PARITP[:,:,0]
+
+        # center_indices = np.argwhere(a2>cellthresh)
+        # c_indices = clean_indices(center_indices, a2.shape, cellINT)
+
+        # cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+        # cbox = a2[cidx[:,:,0],cidx[:,:,1]]
+        # cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
+        # cbox = cbox[:,cbr>cbcellthrsh]
+        # c_indices = c_indices[cbr>cbcellthrsh,:]
+
+        # llscore = np.zeros(cbox.shape)
+        # llscore[cbox<=s2xnum[0]] = s2ynum[0]
+        # pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
+        # llscore[pp] = s2g*cbox[pp]+s2gc
+        # llscore[cbox>=s2xnum[1]] = s2ynum[1]
+        # clscore = np.nansum(llscore,0)/Celldp.shape[0]
+        # clscore = clscore/Celldp.shape[0]
+        # totscore = np.zeros(Cx.shape)
+        # totscore[c_indices[:,0],c_indices[:,1]] = clscore
+        # CELLline = medfilt2d(totscore, kernel_size=11)
+
+        # a2 = CELLline
+
+        # center_indices = np.argwhere(a2>cellcsrthresh)
+        # c_indices = clean_indices(center_indices, a2.shape, widecellINT)
+
+        # cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+        # cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
+        # cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
+        # center_indices = center_indices[cbr<1,:]
+        # cidx = (c_indices[np.newaxis,:,:] + Celldpw).astype(int)
+
+        # a2[cidx[:,:,0],cidx[:,:,1]] = 1
+        # widecellz = a2>0.5
+
+
+        # # # %%%%%%%%%%%%%%      ../IMG/exe_3_img_exe.m
+        # pbeta = (linez+linedelz)/2
+        # pbeta[np.isnan(PARITP[:,:,0])] = np.nan
+        # beta = pbeta-widecellz
+        # beta[beta<0] = 0
+
+
+        # # %%%%%%%%%%%%%%      NF06_calc_6variables_preprocessing
+        # inputNF = np.zeros((*Cx.shape,6))
+        #     # % inputNF(:,:,1)=PARITP(:,:,1);
+        #     # % inputNF(:,:,2)=beta;
+        #     # % inputNF(:,:,3)=PARITP(:,:,6);
+        #     # % inputNF(:,:,4)=PARITP(:,:,5);
+        #     # % inputNF(:,:,5)=stda(:,:,2);
+        #     # % inputNF(:,:,6)=PARITP(:,:,4);
+
+        #     # %%%%%%%%%%%%%%      direct layout for fis input
+        # inputNF[:,:,0] = beta
+        # inputNF[:,:,1] = PARITP[:,:,0] # reflectivity
+        # inputNF[:,:,2] = PARITP[:,:,4] # cross_correlation_ratio
+        # inputNF[:,:,3] = PARITP[:,:,5] # differential_reflectivity
+        # inputNF[:,:,4] = stda
+        # inputNF[:,:,5] = PARITP[:,:,3] # differential_phase
+
+        # # pnan = np.isnan(inputNF)
+        # # pnansum = np.max(pnan,2)
+        # # inputNF[pnansum,:] = np.nan
 
         outputGST = fuzzGST.eval_fis(inputNF)
         hh = outputGST>=0.24
