@@ -27,6 +27,8 @@ evalbox_on = config.getboolean('Settings', 'evalbox_on')
 fig_dir = config["Settings"]["fig_dir"]
 label_on = config.getboolean('labels', 'label_on')
 
+Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
+
 if label_on:
     label_loc = list(map(float,config.get("labels", "loc").split(",")))
     radar_loc = list(map(float,config.get("labels", "rloc").split(",")))
@@ -146,12 +148,12 @@ class GFSpace:
     def load_nf(self,fn):
         self.data.append(np.load(fn))
         self.tstamp.append(get_tstamp(fn))
-        self.nf_loc.append( {'x':self.data[-1]['xi2'][self.data[-1]['nfout']],'y':self.data[-1]['yi2'][self.data[-1]['nfout']],
-                             'idx':np.arange(self.data[-1]['xi2'].size).reshape(self.data[-1]['xi2'].shape)[self.data[-1]['nfout']]})
+        self.nf_loc.append( {'x':Cx[self.data[-1]['nfout']],'y':Cy[self.data[-1]['nfout']],
+                             'idx':np.arange(Cx.size).reshape(Cx.shape)[self.data[-1]['nfout']]})
         if len(self.nf_loc)>1:
             self.nf_pair.append(self.connect_nf(self.nf_loc[-2],self.nf_loc[-1],(self.tstamp[-1]-self.tstamp[-2]).total_seconds()))
         else:
-            self.shp = self.data[0]['xi2'].shape
+            self.shp = Cx.shape
             
     def connect_nf(self,t1,t2,dt):
         A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
@@ -229,8 +231,8 @@ def nffig_proc(case_name,plot_on=False):
         wgfspace.load_nf(ppi_file)
     # wgfspace.clean_short_track()
     # wgfspace.clean_random_track_motion()
-    Cx = wgfspace.data[0]['xi2']
-    Cy = wgfspace.data[0]['yi2']
+    # Cx = wgfspace.data[0]['xi2']
+    # Cy = wgfspace.data[0]['yi2']
     r = np.sqrt(Cx**2+Cy**2)
     rmask = r>=100
     
@@ -247,7 +249,8 @@ def nffig_proc(case_name,plot_on=False):
         else:
             evalbox = np.zeros(Cx.shape)
         evalline = skeletonize(evalbox)
-        gcoord = {'Cx':data['xi2'],'Cy':data['yi2']}
+        # gcoord = {'Cx':data['xi2'],'Cy':data['yi2']}
+        gcoord = {'Cx':Cx,'Cy':Cy}
         (hr,fa), eval_pre = eval_nf(data['nfout'],evalline,evalbox,gcoord)
         hr_pre.append(hr)
         fa_pre.append(fa)
@@ -255,11 +258,11 @@ def nffig_proc(case_name,plot_on=False):
 
         proc_nf = wgfspace.get_cln_nf(ic)
         matout = export_preds_fapos_event + '/' + npz_list[ic].split('/')[-1]
-        data_dict = {"xi2":data['xi2'],"yi2":data['yi2'],"REF":data['REF'], \
-                    "nfout": proc_nf,"inputNF":data['inputNF'],
-                    "evalbox":evalbox}
-                    # ,'outputGST':data['outputGST']}
-        scipy.io.savemat(matout, data_dict)
+        # data_dict = {"xi2":Cx,"yi2":Cy,"REF":data['REF'], \
+        #             "nfout": proc_nf,"inputNF":data['inputNF'],
+        #             "evalbox":evalbox}
+        #             # ,'outputGST':data['outputGST']}
+        # scipy.io.savemat(matout, data_dict)
 
         (hr,fa), eval_pos = eval_nf(proc_nf,evalline,evalbox,gcoord)
         hr_pos.append(hr)

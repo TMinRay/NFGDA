@@ -27,6 +27,7 @@ RegR = np.arange(0,400)/4
 RegAZ = np.arange(0,360,0.5)*np.pi/180
 RegPolarX = RegR[:,np.newaxis] * np.sin(RegAZ[np.newaxis,:])
 RegPolarY = RegR[:,np.newaxis] * np.cos(RegAZ[np.newaxis,:])
+interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), np.zeros(RegPolarX.shape).reshape(-1))
 Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
 
 ###### Beta Cell magic numbers ##########
@@ -277,179 +278,334 @@ class NFModule:
 
 fuzzGST = NFModule('NF00ref_YHWANG_fis4python.mat')
 
-def nfgda_proc(case_name):
-    exp_preds_event = export_preds_dir + case_name
+def nfgda_unit_step(nexrad_0,nexrad_1,process_tag):
+    ifn = nexrad_1
+    print(ifn)
+    exp_preds_event = export_preds_dir + process_tag
     os.makedirs(exp_preds_event,exist_ok=True)
-    label_path = os.path.join('../V06/',case_name,case_name+'_labels')
+    label_path = os.path.join('../V06/',process_tag,process_tag+'_labels')
+
+    buf = np.load(nexrad_0)
+    PARROT0 = buf['PARROT']
+    if PARROT_mask_on:
+        PARROT0[buf['mask']] = np.nan
+    PARROT0 = np.asfortranarray(PARROT0)
+
+    PARROT_buf = np.load(nexrad_1)
+    PARROT = PARROT_buf['PARROT']
+    if PARROT_mask_on:
+        PARROT[PARROT_buf['mask']] = np.nan
+    PARROT = np.asfortranarray(PARROT)
+    
+    # z1 = PARROT[:,:,0].copy()
+    # z0 = PARROT0[:,:,0].copy()
+    # diffz = z1-z0
+    diffz = PARROT[:,:,0] - PARROT0[:,:,0]
+    
+    PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
+    
+    for iv in [0,1,3,4,5]:
+        if iv == 3:
+            sdphi=np.zeros((*RegPolarX.shape,5))
+            phi = PARROT[:,:,iv]
+            phi[phi<0] = np.nan
+            phi[phi>360] = np.nan
+            sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
+            interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
+        else:
+            interpolator.values = PARROT[:,:,iv].reshape(-1,1)
+        PARITP[:,:,iv] = interpolator(Cx, Cy)
+    # scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
+
+    V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
+    V_window = V_window.reshape((*V_window.shape[:2],-1))
+    cbr = np.sum(~np.isnan(V_window),axis = 2)/9
+    SD_buf = np.zeros(V_window.shape[:2])
+    SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
+    stda = np.zeros(Cx.shape)
+    stda[1:-1,1:-1] = SD_buf
+    
+    ########## FTC beta #############
+    ############# Beta Cell ############
+    a2 = PARITP[:,:,0]
+    center_indices = np.argwhere(a2>cellthresh)
+    c_indices = clean_indices(center_indices, a2.shape, cellINT)
+    cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+    cbox = a2[cidx[:,:,0],cidx[:,:,1]]
+    cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
+    cbox = cbox[:,cbr>cbcellthrsh]
+    c_indices = c_indices[cbr>cbcellthrsh,:]
+    llscore = np.zeros(cbox.shape)
+    llscore[cbox<=s2xnum[0]] = s2ynum[0]
+    pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
+    llscore[pp] = s2g*cbox[pp]+s2gc
+    llscore[cbox>=s2xnum[1]] = s2ynum[1]
+    clscore = np.nansum(llscore,0)/Celldp.shape[0]
+    totscore = np.zeros(Cx.shape)
+    totscore[c_indices[:,0],c_indices[:,1]] = clscore
+    CELLline = medfilt2d(totscore, kernel_size=11)
+    
+    a2 = CELLline
+    center_indices = np.argwhere(a2>cellcsrthresh)
+    c_indices = clean_indices(center_indices, a2.shape, widecellINT)
+    cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+    cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
+    cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
+    center_indices = c_indices[cbr<1,:]
+    cidx = (center_indices[np.newaxis,:,:] + Celldpw).astype(int)
+    # a2[cidx[:,:,0],cidx[:,:,1]] = 1
+    widecellz = a2>0.5
+    ############# Beta Cell ############
+    ############# Beta Z, dZ ############
+    rotgz = PARITP[:,:,0]
+    interpolator.values = diffz.reshape(-1,1)
+    rotitp = interpolator(Cx, Cy)
+    
+    # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+    # z_cfun = make_ftc_cscore([15, 20, 3, 3, -1, 12, 4, -2, 3])
+    # z_sfun = make_ftc_sscore([0, 5, 5, 2,-1, 5, 3,-3, 1])
+    z_cfun = make_ftc_cscore([3, 8, 3, 3, -1, 12, 4, -2, 3])
+    z_sfun = make_ftc_sscore([-8, -3, 5, 2,-1, 5, 3,-3, 1])
+    zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
+    zbeta = gen_beta(rotgz,thrREF,zftcs)
+    # dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
+    # dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
+    dz_cfun = make_ftc_cscore([0,10,4,3,-2,9,4,-3,2])
+    dz_sfun = make_ftc_sscore([-10,-5,5,2,-1,8,2,-3,1])
+    dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
+    dzbeta = gen_beta(rotitp,thrdREF,dzftcs)
+    ############# Beta Z, dZ ############
+    zbeta[zbeta<0]=0
+    dzbeta[dzbeta<0]=0
+    pbeta = (zbeta+dzbeta)/2
+    pbeta[np.isnan(PARITP[:,:,0])] = np.nan
+    beta = pbeta-widecellz
+    beta[beta<0] = 0
+    ########## FTC beta #############
+
+    ########## NFGDA eval ###########
+    inputNF = np.zeros((*Cx.shape,6))
+    inputNF[:,:,0] = beta
+    inputNF[:,:,1] = PARITP[:,:,0] # reflectivity
+    inputNF[:,:,2] = PARITP[:,:,4] # cross_correlation_ratio
+    inputNF[:,:,3] = PARITP[:,:,5] # differential_reflectivity
+    inputNF[:,:,4] = stda
+    inputNF[:,:,5] = PARITP[:,:,3]
+
+    pnan = np.isnan(inputNF)
+    pnansum = np.max(pnan,2)
+    inputNF[pnansum,:] = np.nan
+
+    outputGST = fuzzGST.eval_fis(inputNF)
+    ########## NFGDA raw output ###########
+    ########## post-processing  ###########
+    # hh = outputGST>=0.24
+    hh = outputGST>=0.6
+    hGST = medfilt2d(hh.astype(float), kernel_size=3)
+    # smoothedhGST = gaussian_filter(hGST, sigma=1, mode='nearest')
+    # skel_nfout = skeletonize(smoothedhGST > 0.3)
+
+    binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
+    pskel_nfout = binary_dilation(binary_mask, disk(5))
+    skel_nfout = skeletonize(pskel_nfout*hh)
+    skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
+
+    matout = os.path.join(exp_preds_event,'nf_pred'+os.path.basename(ifn)[5:-3]+'mat')
+    data_dict = {
+    # "xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
+                "nfout": skel_nfout2,"inputNF":inputNF,
+                "timestamp":PARROT_buf["timestamp"]}
+    if evalbox_on:
+        mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
+        try:
+            handpick = scipy.io.loadmat(mhandpick)
+            evalbox = handpick['evalbox']
+        except:
+            print(f'Warning: No {mhandpick} filling zeros.')
+            evalbox = np.zeros(Cx.shape)
+        interpolator.values = diffz.reshape(-1,1)
+        diffz = interpolator(Cx, Cy)
+        data_dict.update({"evalbox":evalbox, \
+            "diffz": diffz, \
+            'outputGST':outputGST})
+
+    scipy.io.savemat(matout, data_dict)
+    np.savez(matout[:-3]+'npz', **data_dict)
+
+def nfgda_proc(case_name):
+    # exp_preds_event = export_preds_dir + case_name
+    # os.makedirs(exp_preds_event,exist_ok=True)
+    # label_path = os.path.join('../V06/',case_name,case_name+'_labels')
 
     v6m_path = os.path.join('../mat/','POLAR',case_name)
     v6m_list = glob.glob(v6m_path + "/polar*npz")
-    PARROT_buf = np.load(v6m_list[0])
-    PARROT0 = PARROT_buf['PARROT']
-    if PARROT_mask_on:
-        PARROT0[PARROT_buf['mask']] = np.nan
-    PARROT0 = np.asfortranarray(PARROT0)
+    # PARROT_buf = np.load(v6m_list[0])
+    # PARROT0 = PARROT_buf['PARROT']
+    # if PARROT_mask_on:
+    #     PARROT0[PARROT_buf['mask']] = np.nan
+    # PARROT0 = np.asfortranarray(PARROT0)
 
-    interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), PARROT0[:,:,0].reshape(-1))
+    for iv in range(min((config.getint('Settings', 'i_end'),len(v6m_list)))-1):
+        nfgda_unit_step(v6m_list[iv],v6m_list[iv+1],case_name)
+    # for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
+        # # ifn = v6m_list[iv6m+1]
+        # print(ifn)
 
-    for ifn in v6m_list[1:config.getint('Settings', 'i_end')+1]:
-        # ifn = v6m_list[iv6m+1]
-        print(ifn)
-
-        ########### polar coordinate (PARROT) to cartesian coordinate (PARITP) ########
-        PARROT_buf = np.load(ifn)
-        PARROT = PARROT_buf['PARROT']
-        if PARROT_mask_on:
-            PARROT[PARROT_buf['mask']] = np.nan
-        PARROT = np.asfortranarray(PARROT)
+        # ########### polar coordinate (PARROT) to cartesian coordinate (PARITP) ########
+        # PARROT_buf = np.load(ifn)
+        # PARROT = PARROT_buf['PARROT']
+        # if PARROT_mask_on:
+        #     PARROT[PARROT_buf['mask']] = np.nan
+        # PARROT = np.asfortranarray(PARROT)
         
-        z1 = PARROT[:,:,0].copy()
-        z0 = PARROT0[:,:,0].copy()
-        diffz = z1-z0
+        # z1 = PARROT[:,:,0].copy()
+        # z0 = PARROT0[:,:,0].copy()
+        # diffz = z1-z0
         
-        PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
+        # PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
         
-        for iv in [0,1,3,4,5]:
-            if iv == 3:
-                sdphi=np.zeros((*RegPolarX.shape,5))
-                phi = PARROT[:,:,iv]
-                phi[phi<0] = np.nan
-                phi[phi>360] = np.nan
-                sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
-                interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
-            else:
-                # interpolator.values = PARROT[1:,:,iv].reshape(-1,1)
-                interpolator.values = PARROT[:,:,iv].reshape(-1,1)
-            PARITP[:,:,iv] = interpolator(Cx, Cy)
-        # scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
+        # for iv in [0,1,3,4,5]:
+        #     if iv == 3:
+        #         sdphi=np.zeros((*RegPolarX.shape,5))
+        #         phi = PARROT[:,:,iv]
+        #         phi[phi<0] = np.nan
+        #         phi[phi>360] = np.nan
+        #         sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
+        #         interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
+        #     else:
+        #         # interpolator.values = PARROT[1:,:,iv].reshape(-1,1)
+        #         interpolator.values = PARROT[:,:,iv].reshape(-1,1)
+        #     PARITP[:,:,iv] = interpolator(Cx, Cy)
+        # # scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
 
-        V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
-        V_window = V_window.reshape((*V_window.shape[:2],-1))
-        cbr = np.sum(~np.isnan(V_window),axis = 2)/9
-        SD_buf = np.zeros(V_window.shape[:2])
-        SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
-        stda = np.zeros(Cx.shape)
-        stda[1:-1,1:-1] = SD_buf
+        # V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
+        # V_window = V_window.reshape((*V_window.shape[:2],-1))
+        # cbr = np.sum(~np.isnan(V_window),axis = 2)/9
+        # SD_buf = np.zeros(V_window.shape[:2])
+        # SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
+        # stda = np.zeros(Cx.shape)
+        # stda[1:-1,1:-1] = SD_buf
         
-        ########## FTC beta #############
-        ############# Beta Cell ############
-        a2 = PARITP[:,:,0]
-        center_indices = np.argwhere(a2>cellthresh)
-        c_indices = clean_indices(center_indices, a2.shape, cellINT)
-        cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
-        cbox = a2[cidx[:,:,0],cidx[:,:,1]]
-        cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
-        cbox = cbox[:,cbr>cbcellthrsh]
-        c_indices = c_indices[cbr>cbcellthrsh,:]
-        llscore = np.zeros(cbox.shape)
-        llscore[cbox<=s2xnum[0]] = s2ynum[0]
-        pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
-        llscore[pp] = s2g*cbox[pp]+s2gc
-        llscore[cbox>=s2xnum[1]] = s2ynum[1]
-        clscore = np.nansum(llscore,0)/Celldp.shape[0]
-        totscore = np.zeros(Cx.shape)
-        totscore[c_indices[:,0],c_indices[:,1]] = clscore
-        CELLline = medfilt2d(totscore, kernel_size=11)
+        # ########## FTC beta #############
+        # ############# Beta Cell ############
+        # a2 = PARITP[:,:,0]
+        # center_indices = np.argwhere(a2>cellthresh)
+        # c_indices = clean_indices(center_indices, a2.shape, cellINT)
+        # cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+        # cbox = a2[cidx[:,:,0],cidx[:,:,1]]
+        # cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
+        # cbox = cbox[:,cbr>cbcellthrsh]
+        # c_indices = c_indices[cbr>cbcellthrsh,:]
+        # llscore = np.zeros(cbox.shape)
+        # llscore[cbox<=s2xnum[0]] = s2ynum[0]
+        # pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
+        # llscore[pp] = s2g*cbox[pp]+s2gc
+        # llscore[cbox>=s2xnum[1]] = s2ynum[1]
+        # clscore = np.nansum(llscore,0)/Celldp.shape[0]
+        # totscore = np.zeros(Cx.shape)
+        # totscore[c_indices[:,0],c_indices[:,1]] = clscore
+        # CELLline = medfilt2d(totscore, kernel_size=11)
         
-        a2 = CELLline
-        center_indices = np.argwhere(a2>cellcsrthresh)
-        c_indices = clean_indices(center_indices, a2.shape, widecellINT)
-        cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
-        cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
-        cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
-        center_indices = c_indices[cbr<1,:]
-        cidx = (center_indices[np.newaxis,:,:] + Celldpw).astype(int)
-        # a2[cidx[:,:,0],cidx[:,:,1]] = 1
-        widecellz = a2>0.5
-        ############# Beta Cell ############
-        ############# Beta Z, dZ ############
-        rotgz = PARITP[:,:,0]
-        interpolator.values = diffz.reshape(-1,1)
-        rotitp = interpolator(Cx, Cy)
+        # a2 = CELLline
+        # center_indices = np.argwhere(a2>cellcsrthresh)
+        # c_indices = clean_indices(center_indices, a2.shape, widecellINT)
+        # cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+        # cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
+        # cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
+        # center_indices = c_indices[cbr<1,:]
+        # cidx = (center_indices[np.newaxis,:,:] + Celldpw).astype(int)
+        # # a2[cidx[:,:,0],cidx[:,:,1]] = 1
+        # widecellz = a2>0.5
+        # ############# Beta Cell ############
+        # ############# Beta Z, dZ ############
+        # rotgz = PARITP[:,:,0]
+        # interpolator.values = diffz.reshape(-1,1)
+        # rotitp = interpolator(Cx, Cy)
         
-        # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
-        # z_cfun = make_ftc_cscore([15, 20, 3, 3, -1, 12, 4, -2, 3])
-        # z_sfun = make_ftc_sscore([0, 5, 5, 2,-1, 5, 3,-3, 1])
-        z_cfun = make_ftc_cscore([3, 8, 3, 3, -1, 12, 4, -2, 3])
-        z_sfun = make_ftc_sscore([-8, -3, 5, 2,-1, 5, 3,-3, 1])
-        zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
-        zbeta = gen_beta(rotgz,thrREF,zftcs)
-        # dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
-        # dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
-        dz_cfun = make_ftc_cscore([0,10,4,3,-2,9,4,-3,2])
-        dz_sfun = make_ftc_sscore([-10,-5,5,2,-1,8,2,-3,1])
-        dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
-        dzbeta = gen_beta(rotitp,thrdREF,dzftcs)
-        ############# Beta Z, dZ ############
-        zbeta[zbeta<0]=0
-        dzbeta[dzbeta<0]=0
-        pbeta = (zbeta+dzbeta)/2
-        pbeta[np.isnan(PARITP[:,:,0])] = np.nan
-        beta = pbeta-widecellz
-        beta[beta<0] = 0
-        ########## FTC beta #############
+        # # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+        # # z_cfun = make_ftc_cscore([15, 20, 3, 3, -1, 12, 4, -2, 3])
+        # # z_sfun = make_ftc_sscore([0, 5, 5, 2,-1, 5, 3,-3, 1])
+        # z_cfun = make_ftc_cscore([3, 8, 3, 3, -1, 12, 4, -2, 3])
+        # z_sfun = make_ftc_sscore([-8, -3, 5, 2,-1, 5, 3,-3, 1])
+        # zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
+        # zbeta = gen_beta(rotgz,thrREF,zftcs)
+        # # dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
+        # # dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
+        # dz_cfun = make_ftc_cscore([0,10,4,3,-2,9,4,-3,2])
+        # dz_sfun = make_ftc_sscore([-10,-5,5,2,-1,8,2,-3,1])
+        # dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
+        # dzbeta = gen_beta(rotitp,thrdREF,dzftcs)
+        # ############# Beta Z, dZ ############
+        # zbeta[zbeta<0]=0
+        # dzbeta[dzbeta<0]=0
+        # pbeta = (zbeta+dzbeta)/2
+        # pbeta[np.isnan(PARITP[:,:,0])] = np.nan
+        # beta = pbeta-widecellz
+        # beta[beta<0] = 0
+        # ########## FTC beta #############
 
-        ########## NFGDA eval ###########
-        inputNF = np.zeros((*Cx.shape,6))
-        inputNF[:,:,0] = beta
-        inputNF[:,:,1] = PARITP[:,:,0] # reflectivity
-        inputNF[:,:,2] = PARITP[:,:,4] # cross_correlation_ratio
-        inputNF[:,:,3] = PARITP[:,:,5] # differential_reflectivity
-        inputNF[:,:,4] = stda
-        inputNF[:,:,5] = PARITP[:,:,3]
+        # ########## NFGDA eval ###########
+        # inputNF = np.zeros((*Cx.shape,6))
+        # inputNF[:,:,0] = beta
+        # inputNF[:,:,1] = PARITP[:,:,0] # reflectivity
+        # inputNF[:,:,2] = PARITP[:,:,4] # cross_correlation_ratio
+        # inputNF[:,:,3] = PARITP[:,:,5] # differential_reflectivity
+        # inputNF[:,:,4] = stda
+        # inputNF[:,:,5] = PARITP[:,:,3]
 
-        pnan = np.isnan(inputNF)
-        pnansum = np.max(pnan,2)
-        inputNF[pnansum,:] = np.nan
+        # pnan = np.isnan(inputNF)
+        # pnansum = np.max(pnan,2)
+        # inputNF[pnansum,:] = np.nan
 
-        outputGST = fuzzGST.eval_fis(inputNF)
-        ########## NFGDA raw output ###########
-        ########## post-processing  ###########
-        # hh = outputGST>=0.24
-        hh = outputGST>=0.6
-        hGST = medfilt2d(hh.astype(float), kernel_size=3)
-        # smoothedhGST = gaussian_filter(hGST, sigma=1, mode='nearest')
-        # skel_nfout = skeletonize(smoothedhGST > 0.3)
+        # outputGST = fuzzGST.eval_fis(inputNF)
+        # ########## NFGDA raw output ###########
+        # ########## post-processing  ###########
+        # # hh = outputGST>=0.24
+        # hh = outputGST>=0.6
+        # hGST = medfilt2d(hh.astype(float), kernel_size=3)
+        # # smoothedhGST = gaussian_filter(hGST, sigma=1, mode='nearest')
+        # # skel_nfout = skeletonize(smoothedhGST > 0.3)
 
-        binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
-        pskel_nfout = binary_dilation(binary_mask, disk(5))
-        skel_nfout = skeletonize(pskel_nfout*hh)
-        skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
+        # binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
+        # pskel_nfout = binary_dilation(binary_mask, disk(5))
+        # skel_nfout = skeletonize(pskel_nfout*hh)
+        # skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
 
-        radar_id = ifn.split('_')[-3][:4]
-        date_part = ifn.split('_')[-3][4:]
-        time_part = ifn.split('_')[-2]
-        tstamp_date = datetime.strptime(date_part, "%Y%m%d")
-        tstamp_time = datetime.strptime(time_part, "%H%M%S").time()
+        # # radar_id = ifn.split('_')[-3][:4]
+        # # date_part = ifn.split('_')[-3][4:]
+        # # time_part = ifn.split('_')[-2]
+        # # tstamp_date = datetime.strptime(date_part, "%Y%m%d")
+        # # tstamp_time = datetime.strptime(time_part, "%H%M%S").time()
 
-        matout = os.path.join(exp_preds_event,'nf_pred'+os.path.basename(ifn)[5:-3]+'mat')
-        data_dict = {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
-                    "nfout": skel_nfout2,"inputNF":inputNF,
-                    "timestamp":np.datetime64(datetime.strptime(date_part+time_part, "%Y%m%d%H%M%S"))}
-        if evalbox_on:
-            mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
-            try:
-                handpick = scipy.io.loadmat(mhandpick)
-                evalbox = handpick['evalbox']
-            except:
-                print(f'Warning: No {mhandpick} filling zeros.')
-                evalbox = np.zeros(Cx.shape)
-            interpolator.values = diffz.reshape(-1,1)
-            diffz = interpolator(Cx, Cy)
-            data_dict.update({"evalbox":evalbox, \
-                "diffz": diffz, \
-                'outputGST':outputGST})
+        # matout = os.path.join(exp_preds_event,'nf_pred'+os.path.basename(ifn)[5:-3]+'mat')
+        # data_dict = {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
+        #             "nfout": skel_nfout2,"inputNF":inputNF,
+        #             # "timestamp":np.datetime64(datetime.strptime(date_part+time_part, "%Y%m%d%H%M%S"))}
+        #             "timestamp":PARROT_buf["timestamp"]}
+        # if evalbox_on:
+        #     mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
+        #     try:
+        #         handpick = scipy.io.loadmat(mhandpick)
+        #         evalbox = handpick['evalbox']
+        #     except:
+        #         print(f'Warning: No {mhandpick} filling zeros.')
+        #         evalbox = np.zeros(Cx.shape)
+        #     interpolator.values = diffz.reshape(-1,1)
+        #     diffz = interpolator(Cx, Cy)
+        #     data_dict.update({"evalbox":evalbox, \
+        #         "diffz": diffz, \
+        #         'outputGST':outputGST})
 
-        scipy.io.savemat(matout, data_dict)
-        np.savez(matout[:-3]+'npz', **data_dict)
+        # scipy.io.savemat(matout, data_dict)
+        # np.savez(matout[:-3]+'npz', **data_dict)
 
-        PARROT0 = PARROT
-        # nf_history.append( GFSpace(Cx, Cy, skel_nfout2, 4) )
-        # gfworker = GFSpace(Cx, Cy, skel_nfout2, 4)
-        # print(gfworker.n_groups)
-        # plt.pcolormesh(gfworker.groups)
-        # plt.show()
-        # exit()
+        # PARROT0 = PARROT
+        # # nf_history.append( GFSpace(Cx, Cy, skel_nfout2, 4) )
+        # # gfworker = GFSpace(Cx, Cy, skel_nfout2, 4)
+        # # print(gfworker.n_groups)
+        # # plt.pcolormesh(gfworker.groups)
+        # # plt.show()
+        # # exit()
 
     toc = time.time()  # End timer
     print(f"Elapsed time: {toc - tic:.6f} seconds")
