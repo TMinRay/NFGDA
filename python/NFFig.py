@@ -10,7 +10,7 @@ import tminlib.colorlevel as cl
 from tminlib import plot_helper as phelp
 from tminlib import math_kit as mk
 from datetime import datetime, timedelta
-from skimage.morphology import skeletonize, disk, binary_dilation, binary_erosion, remove_small_objects, dilation
+from skimage.morphology import skeletonize, disk, binary_dilation, remove_small_objects, dilation
 from skimage.measure import label
 from scipy.signal import medfilt2d
 from scipy.spatial.distance import pdist, squareform
@@ -120,19 +120,19 @@ def nf_arc(xx,yy,bw):
     else:
         return np.zeros(xx.shape,dtype=bool)
 
-def clean_indices(idx,shp,edg):
-    dim0 = idx[:,0]
-    dim1 = idx[:,1]
-    inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
-    return idx[inbox,:]
+# def clean_indices(idx,shp,edg):
+#     dim0 = idx[:,0]
+#     dim1 = idx[:,1]
+#     inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
+#     return idx[inbox,:]
 
-def post_proc(inGST):
-    hGST = medfilt2d(inGST.astype(float), kernel_size=3)
-    binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
-    pskel_nfout = binary_dilation(binary_mask, disk(5))
-    skel_nfout = skeletonize(pskel_nfout*inGST)
-    skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
-    return skel_nfout2
+# def post_proc(inGST):
+#     hGST = medfilt2d(inGST.astype(float), kernel_size=3)
+#     binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
+#     pskel_nfout = binary_dilation(binary_mask, disk(5))
+#     skel_nfout = skeletonize(pskel_nfout*inGST)
+#     skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
+#     return skel_nfout2
 
 # gfv = [4, 32]
 class GFSpace:

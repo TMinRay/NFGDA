@@ -415,10 +415,17 @@ def nfgda_proc(case_name):
         pskel_nfout = binary_dilation(binary_mask, disk(5))
         skel_nfout = skeletonize(pskel_nfout*hh)
         skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
-        
+
+        radar_id = ifn.split('_')[-3][:4]
+        date_part = ifn.split('_')[-3][4:]
+        time_part = ifn.split('_')[-2]
+        tstamp_date = datetime.strptime(date_part, "%Y%m%d")
+        tstamp_time = datetime.strptime(time_part, "%H%M%S").time()
+
         matout = os.path.join(exp_preds_event,'nf_pred'+os.path.basename(ifn)[5:-3]+'mat')
         data_dict = {"xi2":Cx,"yi2":Cy,"REF":PARITP[:,:,0], \
-                    "nfout": skel_nfout2,"inputNF":inputNF}
+                    "nfout": skel_nfout2,"inputNF":inputNF,
+                    "timestamp":np.datetime64(datetime.strptime(date_part+time_part, "%Y%m%d%H%M%S"))}
         if evalbox_on:
             mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
             try:
