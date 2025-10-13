@@ -11,14 +11,9 @@ import matplotlib.pyplot as plt
 import glob
 import sys
 import os
-import configparser
-# from tminlib.utility import *
 from datetime import datetime
+from NFGDA_load_config import *
 
-config = configparser.ConfigParser()
-config.read("NFGDA.ini")
-export_preds_dir = config["Settings"]["export_preds_dir"]
-evalbox_on = config.getboolean('Settings', 'evalbox_on')
 PARROT_mask_on = True
 
 thrREF = -5
@@ -28,7 +23,6 @@ RegAZ = np.arange(0,360,0.5)*np.pi/180
 RegPolarX = RegR[:,np.newaxis] * np.sin(RegAZ[np.newaxis,:])
 RegPolarY = RegR[:,np.newaxis] * np.cos(RegAZ[np.newaxis,:])
 interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), np.zeros(RegPolarX.shape).reshape(-1))
-Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
 
 ###### Beta Cell magic numbers ##########
 cellthresh = 5

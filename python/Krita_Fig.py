@@ -1,5 +1,5 @@
 import numpy as np
-import configparser
+# import configparser
 import glob
 import os
 import sys
@@ -17,24 +17,13 @@ from scipy.signal import medfilt2d
 from scipy.spatial.distance import pdist, squareform
 from scipy.spatial import cKDTree
 import scipy.io
+from NFGDA_load_config import *
 plt.style.use('dark_background')
 
 VM=cl.VarMap()
 varname_table=VM.varname_table
 varunit_table=VM.varunit_table
-config = configparser.ConfigParser()
-config.read("./NFGDA.ini")
-export_preds_dir = config["Settings"]["export_preds_dir"]
-evalbox_on = config.getboolean('Settings', 'evalbox_on')
 fig_dir = config["Settings"]["label_dir"]
-if config["labels"]["label_on"]:
-    label_loc = list(map(float,config.get("labels", "loc").split(",")))
-    radar_loc = list(map(float,config.get("labels", "rloc").split(",")))
-    sitex, sitey = mk.geopoints_to_relative_xy(radar_loc,label_loc)
-# export_statistics_dir = config["Settings"]["export_statistics_dir"]
-# os.makedirs(export_statistics_dir,exist_ok=True)
-export_preds_fapos_dir = export_preds_dir[:-1]+'_pos/'
-os.makedirs(export_preds_fapos_dir,exist_ok=True)
 
 def eval_nf(nfloc,evalline,evalbox,gd):
     nfpredict = dilation(nfloc, disk(5))
@@ -146,12 +135,12 @@ class GFSpace:
     def load_nf(self,fn):
         self.data.append(np.load(fn))
         self.tstamp.append(get_tstamp(fn))
-        self.nf_loc.append( {'x':self.data[-1]['xi2'][self.data[-1]['nfout']],'y':self.data[-1]['yi2'][self.data[-1]['nfout']],
-                             'idx':np.arange(self.data[-1]['xi2'].size).reshape(self.data[-1]['xi2'].shape)[self.data[-1]['nfout']]})
+        self.nf_loc.append( {'x':Cx,'y':Cy,
+                             'idx':np.arange(Cx.size).reshape(Cx.shape)[self.data[-1]['nfout']]})
         if len(self.nf_loc)>1:
             self.nf_pair.append(self.connect_nf(self.nf_loc[-2],self.nf_loc[-1],(self.tstamp[-1]-self.tstamp[-2]).total_seconds()))
         else:
-            self.shp = self.data[0]['xi2'].shape
+            self.shp = Cx.shape
             
     def connect_nf(self,t1,t2,dt):
         A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
@@ -221,16 +210,13 @@ def nffig_proc(case_name,eval_on=False):
     os.makedirs(savedir,exist_ok=True)
     labeldir = savedir+f'/{case_name}_labels'
 
-    export_preds_fapos_event = export_preds_fapos_dir + case_name
-    os.makedirs(export_preds_fapos_event,exist_ok=True)
-
     npz_list = glob.glob(exp_preds_event + "/*npz")
     wgfspace = GFSpace([18,72])
     for ppi_file in npz_list:
         wgfspace.load_nf(ppi_file)
 
-    Cx = wgfspace.data[0]['xi2']
-    Cy = wgfspace.data[0]['yi2']
+    # Cx = wgfspace.data[0]['xi2']
+    # Cy = wgfspace.data[0]['yi2']
     r = np.sqrt(Cx**2+Cy**2)
     rmask = r>=100
     

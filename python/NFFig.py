@@ -1,5 +1,4 @@
 import numpy as np
-import configparser
 import glob
 import os
 
@@ -8,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import tminlib.colorlevel as cl
 from tminlib import plot_helper as phelp
-from tminlib import math_kit as mk
+
 from datetime import datetime, timedelta
 from skimage.morphology import skeletonize, disk, binary_dilation, remove_small_objects, dilation
 from skimage.measure import label
@@ -16,23 +15,15 @@ from scipy.signal import medfilt2d
 from scipy.spatial.distance import pdist, squareform
 from scipy.spatial import cKDTree
 import scipy.io
+from NFGDA_load_config import *
 
 VM=cl.VarMap()
 varname_table=VM.varname_table
 varunit_table=VM.varunit_table
-config = configparser.ConfigParser()
-config.read("./NFGDA.ini")
-export_preds_dir = config["Settings"]["export_preds_dir"]
-evalbox_on = config.getboolean('Settings', 'evalbox_on')
-fig_dir = config["Settings"]["fig_dir"]
-label_on = config.getboolean('labels', 'label_on')
 
 Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
 
-if label_on:
-    label_loc = list(map(float,config.get("labels", "loc").split(",")))
-    radar_loc = list(map(float,config.get("labels", "rloc").split(",")))
-    sitex, sitey = mk.geopoints_to_relative_xy(radar_loc,label_loc)
+
 # export_statistics_dir = config["Settings"]["export_statistics_dir"]
 # os.makedirs(export_statistics_dir,exist_ok=True)
 export_preds_fapos_dir = export_preds_dir[:-1]+'_pos/'
