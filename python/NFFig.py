@@ -208,7 +208,7 @@ def get_tstamp(ppi_file):
 def get_dirdiff(dir1,dir2):
     return np.rad2deg(np.angle(dir1*np.conj(dir2)))
 
-def nffig_proc(case_name,plot_on=False):
+def nffig_proc(case_name):
     exp_preds_event = export_preds_dir + case_name
     savedir = os.path.join(fig_dir, case_name)
     os.makedirs(savedir,exist_ok=True)
