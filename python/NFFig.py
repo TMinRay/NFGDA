@@ -21,9 +21,6 @@ VM=cl.VarMap()
 varname_table=VM.varname_table
 varunit_table=VM.varunit_table
 
-Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
-
-
 # export_statistics_dir = config["Settings"]["export_statistics_dir"]
 # os.makedirs(export_statistics_dir,exist_ok=True)
 export_preds_fapos_dir = export_preds_dir[:-1]+'_pos/'
