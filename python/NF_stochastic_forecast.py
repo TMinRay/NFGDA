@@ -26,7 +26,7 @@ varname_table=VM.varname_table
 varunit_table=VM.varunit_table
 
 kernel = np.ones((3,3), dtype=int)
-
+ele_t_const, mean_t_const = 29.04, 28.43
 r = np.sqrt(Cx**2+Cy**2)
 rmask = r>=100
 
@@ -260,15 +260,15 @@ class Prediction_Worker:
             tstp = self.gps[startf].timestamp + dt*np.timedelta64(1, 'm')
         return GFGroups(anchors,tstp)
 
+def exp_weight(dt,t_const):
+    return np.exp(-dt/t_const)
+
 def nfgda_forecast(case_name):
     exp_preds_event = export_preds_dir + case_name
     savedir = os.path.join(export_forecast_dir[:-1]+'-stochastic/', case_name)
     os.makedirs(savedir,exist_ok=True)
 
     npz_list = glob.glob(exp_preds_event + "/*npz")
-    data = np.load(npz_list[0])
-    nfout0 = data['nfout']
-    nfout1 = np.load(npz_list[1])['nfout']
 
     evs = []
     gps = []
@@ -282,7 +282,7 @@ def nfgda_forecast(case_name):
     worker = eval_worker
     for iframe in range(len(npz_list)-1):
         worker.update_velocitys(iframe)
-    max_predict = 8
+    max_predict = 12
     for pframe in range(len(npz_list)-1):
         ppi_id = os.path.basename(npz_list[pframe])
         pgf = np.zeros(Cx.shape)
@@ -297,14 +297,18 @@ def nfgda_forecast(case_name):
             print(f'[{iframe}] -> [{pframe}]')
             dt = (worker.gps[pframe].timestamp-worker.gps[iframe].timestamp)/np.timedelta64(60, 's')
             if worker.connects[iframe].igp_anchor.ndim>1:
-                ps += 2
+                ele_w = exp_weight(dt,ele_t_const)
+                mean_w = exp_weight(dt,mean_t_const)
+                # ele_w = 1
+                # mean_w = 1
+                ps += ele_w + mean_w
                 end = worker.prediction(iframe, dt)
                 axs[0].plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=((0.5+0.5*(pframe-iframe)/max_predict),0,0),label='element',alpha=0.5)
-                pgf += binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(int)
+                pgf += ele_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
 
                 end = worker.prediction(iframe, dt,mode='mean')
                 axs[0].plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=(0,0,(0.5+0.5*(pframe-iframe)/max_predict)),label='mean',alpha=0.5)
-                pgf += binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(int)
+                pgf += mean_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
         pgf=pgf/ps*1e2
 
         pcm=axs[1].pcolormesh(Cx,Cy,pgf,vmin=0,vmax=80,cmap='jet')
@@ -314,13 +318,16 @@ def nfgda_forecast(case_name):
         by_label = dict(zip(labels, handles))
         axs[0].legend(by_label.values(), by_label.keys())
         # axs[1].set_title(gps[iframe].timestamp)
-        fig.suptitle(worker.gps[pframe].timestamp.astype(datetime.datetime).item().strftime('%y/%m/%d %H:%M:%S'))
+        valid_time = worker.gps[pframe].timestamp
+        fig.suptitle(valid_time.astype(datetime.datetime).item().strftime('%y/%m/%d %H:%M:%S'))
         for ia in range(2):
             axs[ia].set_xlim(-100,100)
             axs[ia].set_ylim(-100,100)
 
         fig.savefig(os.path.join(savedir, ppi_id[:-4]+'.png'))
         plt.close(fig)
+        data_dict = {"nfproxy": pgf, "timestamp":valid_time}
+        np.savez(os.path.join(savedir, ppi_id[:-4]+'.npz'), **data_dict)
     print("\n=== Full Log ===")
     print(except_text)
 
