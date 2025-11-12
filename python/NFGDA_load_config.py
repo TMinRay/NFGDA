@@ -6,6 +6,7 @@ config = configparser.ConfigParser()
 config.read("NFGDA.ini")
 export_preds_dir = config["Settings"]["export_preds_dir"]
 evalbox_on = config.getboolean('Settings', 'evalbox_on')
+export_forecast_dir = config["Settings"]["export_forecast_dir"]
 fig_dir = config["Settings"]["fig_dir"]
 label_on = config.getboolean('labels', 'label_on')
 if label_on:
