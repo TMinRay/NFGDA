@@ -66,7 +66,6 @@ def rotation_polyfit(points,n,fitn=None):
             coeffs = np.polyfit(rot_points[0,:], rot_points[1,:], n)
         except:
             log_print(rot_points[0,:], rot_points[1,:])
-            log_print(print)
             return points
         if fitn is None:
             fx = np.arange(np.min(rot_points[0,:]),np.max(rot_points[0,:])+0.25,0.25)
@@ -267,6 +266,10 @@ def nfgda_forecast(case_name):
     exp_preds_event = export_preds_dir + case_name
     savedir = os.path.join(export_forecast_dir[:-1]+'-stochastic/', case_name)
     os.makedirs(savedir,exist_ok=True)
+    linesdir = os.path.join(export_forecast_dir[:-1]+'-lines/', case_name)
+    os.makedirs(linesdir,exist_ok=True)
+    pmapdir = os.path.join(export_forecast_dir[:-1]+'-pmap/', case_name)
+    os.makedirs(pmapdir,exist_ok=True)
 
     npz_list = glob.glob(exp_preds_event + "/*npz")
 
@@ -287,10 +290,11 @@ def nfgda_forecast(case_name):
         ppi_id = os.path.basename(npz_list[pframe])
         pgf = np.zeros(Cx.shape)
         ps = 0
-        fig, axs = plt.subplots(1, 2, figsize=(7/0.7, 2.5/0.7),dpi=250, gridspec_kw=dict(left=0.08, right=1-0.085, top=1-0.08, bottom=0.06, wspace=0.25, hspace=0.16))
+        fig, axs = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
+        figpmap, axspmap = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
         pdata = np.ma.masked_where(rmask,data[pframe]['inputNF'][:,:,1])
-        axs[0].pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
-        axs[0].contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
+        pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
+        axs.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
         for iframe in range(pframe-max_predict,pframe):
             if iframe<0:
                 continue
@@ -303,29 +307,45 @@ def nfgda_forecast(case_name):
                 # mean_w = 1
                 ps += ele_w + mean_w
                 end = worker.prediction(iframe, dt)
-                axs[0].plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=((0.5+0.5*(pframe-iframe)/max_predict),0,0),label='element',alpha=0.5)
+                axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=((0.5+0.5*(pframe-iframe)/max_predict),0,0),label='point',alpha=0.5)
                 pgf += ele_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
 
                 end = worker.prediction(iframe, dt,mode='mean')
-                axs[0].plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=(0,0,(0.5+0.5*(pframe-iframe)/max_predict)),label='mean',alpha=0.5)
+                axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=(0,0,(0.5+0.5*(pframe-iframe)/max_predict)),label='mean',alpha=0.5)
                 pgf += mean_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
         pgf=pgf/ps*1e2
 
-        pcm=axs[1].pcolormesh(Cx,Cy,pgf,vmin=0,vmax=80,cmap='jet')
-        plt.colorbar(pcm)
-        axs[1].contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
-        handles, labels = axs[0].get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        axs[0].legend(by_label.values(), by_label.keys())
-        # axs[1].set_title(gps[iframe].timestamp)
-        valid_time = worker.gps[pframe].timestamp
-        fig.suptitle(valid_time.astype(datetime.datetime).item().strftime('%y/%m/%d %H:%M:%S'))
-        for ia in range(2):
-            axs[ia].set_xlim(-100,100)
-            axs[ia].set_ylim(-100,100)
 
-        fig.savefig(os.path.join(savedir, ppi_id[:-4]+'.png'))
+        pcm=axspmap.pcolormesh(Cx,Cy,pgf,vmin=0,vmax=80,cmap='jet')
+        axspmap.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
+
+        cbar=plt.colorbar(pcm,ax=axspmap, pad=0.07)
+        cbar.set_label('Gust Front Proxy', fontsize=10, labelpad=2, rotation=90)
+        cbar.ax.yaxis.set_label_position('left')
+        cbar=plt.colorbar(pcz,ax=axs, pad=0.07)
+        cbar.set_label('Reflectivity (dBZ)', fontsize=10, labelpad=2, rotation=90)
+        cbar.ax.yaxis.set_label_position('left')
+
+        handles, labels = axs.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        axs.legend(by_label.values(), by_label.keys(),loc='upper left', fontsize='small')
+        # axspmap.set_title(gps[iframe].timestamp)
+        valid_time = worker.gps[pframe].timestamp
+
+        for fg in [fig,figpmap]:
+            fg.suptitle(valid_time.astype(datetime.datetime).item().strftime('%Y/%m/%d %H:%M:%S'),y=0.95)
+            fg.subplots_adjust(left=0.125, right=0.985, bottom=0.08, top=0.95)
+
+        for ax in [axs,axspmap]:
+            ax.set_xlim(-100,100)
+            ax.set_ylim(-100,100)
+            ax.set_xlabel('x(km)')
+            ax.set_ylabel('y(km)',labelpad=-10)
+            ax.set_aspect('equal')
+        fig.savefig(os.path.join(linesdir, ppi_id[:-4]+'.png'))
         plt.close(fig)
+        figpmap.savefig(os.path.join(pmapdir, ppi_id[:-4]+'.png'))
+        plt.close(figpmap)
         data_dict = {"nfproxy": pgf, "timestamp":valid_time}
         np.savez(os.path.join(savedir, ppi_id[:-4]+'.npz'), **data_dict)
     print("\n=== Full Log ===")
