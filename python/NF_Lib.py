@@ -1,0 +1,897 @@
+# import time
+# tic = time.time()
+import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
+import scipy.io
+from scipy.signal import medfilt2d
+# from scipy.ndimage import gaussian_filter
+from skimage.morphology import skeletonize, disk, binary_dilation, remove_small_objects
+import matplotlib.pyplot as plt
+import sys
+import os
+import datetime
+from NFGDA_load_config import *
+import pyart
+from pathlib import Path
+
+import nexradaws
+aws_int = nexradaws.NexradAwsInterface()
+
+def tprint(*args, **kwargs):
+    print(f"[{datetime.datetime.now():%H:%M:%S}]", *args, **kwargs)
+
+def rot_displace(dp,origindeg):
+    dpvector = np.swapaxes(dp,1,2)
+    origindeg = origindeg*np.pi/180
+    backprocess = np.array([[np.cos(origindeg),np.sin(origindeg)], \
+                            [-np.sin(origindeg),np.cos(origindeg)]])
+    rotcord = np.matmul(backprocess,dpvector)
+    rotidx = np.round(rotcord)
+    return np.swapaxes(rotidx,1,2)
+
+ftcc=[]
+ftcs=[]
+
+rotdegree = 180/9
+for irot in np.arange(0,180,rotdegree):
+    ftcc.append(rot_displace(datac,irot))
+    ftcs.append(rot_displace(datas,irot))
+ftcc = np.array(ftcc)
+ftcs = np.array(ftcs)
+######### FTC Beta Z, dZ displacements ###########
+mvdiscx = np.zeros((17,17))
+mvdiscy = np.zeros((17,17))
+for ix in range(17):
+    mvdiscx[ix,:]=np.ceil(np.arange(-8,9)*np.sin(np.pi/2/8*(ix)))
+    mvdiscy[ix,:]=np.ceil(np.arange(-8,9)*np.cos(np.pi/2/8*(ix)))
+nccx = mvdiscx.shape[0]
+mvdisc = np.swapaxes(np.array([mvdiscy,mvdiscx]),0,2)[:,:,np.newaxis,:]
+
+def make_ftc_cscore(c_para):
+    cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+    def f(cbox):
+        # params is captured from outer scope
+        llscore = np.zeros(cbox.shape)
+        # llscore = np.full(cbox.shape,np.nan)
+        llscore[cbox<=cnum1] = gaussmf(cbox[cbox<=cnum1], csig1, cnum1)*cfactor1+cintersec1
+        llscore[np.logical_and(cbox>cnum1, cbox<=cnum2)] = cyfill
+        llscore[cbox>cnum2] = gaussmf(cbox[cbox>cnum2], csig2, cnum2)*cfactor2+cintersec2
+        return llscore
+    return f
+
+def make_ftc_sscore(s_para):
+    snum1, snum2, ssig1, sfactor1, sintersec1, ssig2, sfactor2, sintersec2, syfill = s_para
+    def f(sbox):
+        # params is captured from outer scope
+        ssscore = np.zeros(sbox.shape)
+        # ssscore = np.full(sbox.shape,np.nan)
+        ssscore[sbox<snum1] = syfill
+        con1 = np.logical_and(sbox>=snum1, sbox<=snum2)
+        con2 = sbox>snum2
+        ssscore[con1] = gaussmf(sbox[con1], ssig1, snum1)*sfactor1 + sintersec1
+        ssscore[con2] = gaussmf(sbox[con2], ssig2, snum2)*sfactor2 + sintersec2
+        return ssscore
+    return f
+
+class FTC_PLAN:
+    def __init__(self,displace,scorefun,scale):
+        self.displace = displace
+        self.scorefun = scorefun
+        self.numINT = np.max(np.abs(displace))
+        self.scale = scale
+    def gather_pixels(self,ar,center):
+        # idx [direction, displacement, center_pixel, yx]
+        idx = (center[np.newaxis,np.newaxis,:,:] + self.displace).astype(int)
+        return ar[idx[:,:,:,0],idx[:,:,:,1]]
+    def get_score(self,ar,center):
+        cbox = self.gather_pixels(ar,center)
+        pixel_score = self.scorefun(cbox)
+        # pixel_score[np.isnan(pixel_score)] = -3
+        return np.nansum(pixel_score,axis=1)
+
+def gen_beta(a2,a2_thr,ftcs):
+    center_indices = np.argwhere(a2>a2_thr)
+    c_indices = clean_indices(center_indices, a2.shape, ftcs[0].numINT)
+    total_score = ftcs[0].get_score(a2,c_indices)
+    score_scale = ftcs[0].scale*ftcs[0].displace.shape[1]
+    for ftcplan in ftcs[1:]:
+        total_score += ftcplan.get_score(a2,c_indices)
+        score_scale += ftcplan.scale*ftcplan.displace.shape[1]
+    total_score = np.max(total_score,axis=0)
+    scoremt = np.zeros(a2.shape)
+    scoremt[c_indices[:,0],c_indices[:,1]] = total_score/score_scale
+    return scoremt
+
+def gaussmf(x, sigma, c):
+    return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
+
+def clean_indices(idx,shp,edg):
+    dim0 = idx[:,0]
+    dim1 = idx[:,1]
+    inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
+    return idx[inbox,:]
+
+def probor(ar):
+    buf = np.zeros(ar.shape[:-1])
+    for iv in range(ar.shape[-1]):
+        buf = buf + ar[...,iv] - buf * ar[...,iv]
+    return buf
+
+def post_moving_avg(a2):
+    center_indices = np.argwhere(a2>0)
+
+    c_indices = clean_indices(center_indices, a2.shape, avgINT)
+    cidx = (c_indices[np.newaxis,np.newaxis,...] + mvdisc).astype(int)
+    cbox = a2[cidx[...,0],cidx[...,1]]
+    # cbr = np.sum(cbox>thrREF,0)/datacx.size
+    # cbox = cbox[:,cbr>0.5]
+    cbr = np.sum(cbox>0,axis=0)/nccx
+    validcenter = np.max(cbr>0.1,axis=0)
+    cbox = cbox[:,:,validcenter,...]
+    mc = np.nanmean(cbox,axis=0)
+    mc[np.logical_not(cbr>0.1)]=0
+    s_indices = c_indices[validcenter,:]
+    result = np.zeros(a2.shape)
+    result[s_indices[:,0],s_indices[:,1]] = np.max(mc,axis=0)
+    return result
+
+class NFModule:
+    def __init__(self,fismat):
+        buf = scipy.io.loadmat(fismat)
+        # [1,1,rule,vars]
+        self.c = buf['incoef'][:,1,:][np.newaxis,np.newaxis,...]
+        self.sig = buf['incoef'][:,0,:][np.newaxis,np.newaxis,...]
+        self.outcoef = buf['outcoef'][np.newaxis,np.newaxis,...]
+        self.rulew = buf['rulelogic'][:,0]
+        self.rulecon = buf['rulelogic'][:,1]
+    def eval_fis(self,pxls):
+        # pxls[x,y,vars] -> [x,y,rule,vars]
+        x = pxls[:,:,np.newaxis,:]
+        irr = np.exp(-(x-self.c)**2/(2*self.sig**2))
+        # w[x,y,rule]
+        w = np.zeros(irr.shape[:-1])
+        for ir in range(self.rulecon.size):
+            if self.rulecon[ir]==1:
+                w[...,ir] = np.prod(irr[...,ir,:],axis=-1)
+            else:
+                w[...,ir] = probor(irr[...,ir,:])
+        sw = np.sum(w,axis=-1)
+        pad_window = tuple([(0,0),] * (x.ndim-1) + [(0,1),])
+        orr = np.pad(x, pad_width = pad_window, mode='constant', constant_values=1)
+        # orr = [x,ones(size(x,1),1)];
+        unImpSugRuleOut = np.sum(orr*self.outcoef,axis=-1)
+        return np.sum( unImpSugRuleOut*w, axis=-1 )/sw
+
+fuzzGST = NFModule('NF00ref_YHWANG_fis4python.mat')
+
+def nfgda_unit_step(l2_file_0,l2_file_1,process_tag=''):
+    ifn = l2_file_1
+    tprint(f'[NFGDA] {l2_file_0} - {l2_file_1}')
+    # exp_preds_event = export_preds_dir + process_tag
+    # os.makedirs(exp_preds_event,exist_ok=True)
+
+    # buf = np.load(l2_file_0)
+    buf = np.load(get_nf_input_name(l2_file_0,path_config))
+    PARROT0 = buf['PARROT']
+    if PARROT_mask_on:
+        PARROT0[buf['mask']] = np.nan
+    PARROT0 = np.asfortranarray(PARROT0)
+
+    # PARROT_buf = np.load(l2_file_1)
+    PARROT_buf = np.load(get_nf_input_name(l2_file_1,path_config))
+    PARROT = PARROT_buf['PARROT']
+    if PARROT_mask_on:
+        PARROT[PARROT_buf['mask']] = np.nan
+    PARROT = np.asfortranarray(PARROT)
+    
+    diffz = PARROT[:,:,0] - PARROT0[:,:,0]
+    
+    PARITP = np.zeros((*Cx.shape,PARROT.shape[-1]))
+    
+    for iv in [0,1,3,4,5]:
+        if iv == 3:
+            sdphi=np.zeros((*RegPolarX.shape,5))
+            phi = PARROT[:,:,iv]
+            phi[phi<0] = np.nan
+            phi[phi>360] = np.nan
+            sdphi[4:-2,:,:]=sliding_window_view(phi[2:,:], 5, axis=0)
+            interpolator.values = np.nanstd(sdphi,axis = 2, ddof=1).reshape(-1,1)
+        else:
+            interpolator.values = PARROT[:,:,iv].reshape(-1,1)
+        PARITP[:,:,iv] = interpolator(Cx, Cy)
+    # scipy.io.savemat('../mat/pyPARROT.mat', {"PARITP": PARITP})
+
+    V_window = sliding_window_view(PARITP[:,:,1], (3, 3))
+    V_window = V_window.reshape((*V_window.shape[:2],-1))
+    cbr = np.sum(~np.isnan(V_window),axis = 2)/9
+    SD_buf = np.zeros(V_window.shape[:2])
+    SD_buf[cbr>=0.3] = np.nanstd(V_window[cbr>=0.3].reshape(-1,9),axis = 1, ddof=1)
+    stda = np.zeros(Cx.shape)
+    stda[1:-1,1:-1] = SD_buf
+    
+    ########## FTC beta #############
+    ############# Beta Cell ############
+    a2 = PARITP[:,:,0]
+    center_indices = np.argwhere(a2>cellthresh)
+    c_indices = clean_indices(center_indices, a2.shape, cellINT)
+    cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+    cbox = a2[cidx[:,:,0],cidx[:,:,1]]
+    cbr = np.sum( cbox>cellthresh,0)/Celldp.shape[0]
+    cbox = cbox[:,cbr>cbcellthrsh]
+    c_indices = c_indices[cbr>cbcellthrsh,:]
+    llscore = np.zeros(cbox.shape)
+    llscore[cbox<=s2xnum[0]] = s2ynum[0]
+    pp = np.logical_and(cbox>=s2xnum[0], cbox<s2xnum[1])
+    llscore[pp] = s2g*cbox[pp]+s2gc
+    llscore[cbox>=s2xnum[1]] = s2ynum[1]
+    clscore = np.nansum(llscore,0)/Celldp.shape[0]
+    totscore = np.zeros(Cx.shape)
+    totscore[c_indices[:,0],c_indices[:,1]] = clscore
+    CELLline = medfilt2d(totscore, kernel_size=11)
+    
+    a2 = CELLline
+    center_indices = np.argwhere(a2>cellcsrthresh)
+    c_indices = clean_indices(center_indices, a2.shape, widecellINT)
+    cidx = (c_indices[np.newaxis,:,:] + Celldp).astype(int)
+    cbox = a2[cidx[:,:,0],cidx[:,:,1]]>cellcsrthresh
+    cbr = np.sum( cbox>cellcsrthresh,0)/Celldp.shape[0]
+    center_indices = c_indices[cbr<1,:]
+    cidx = (center_indices[np.newaxis,:,:] + Celldpw).astype(int)
+    # a2[cidx[:,:,0],cidx[:,:,1]] = 1
+    widecellz = a2>0.5
+    ############# Beta Cell ############
+    ############# Beta Z, dZ ############
+    rotgz = PARITP[:,:,0]
+    interpolator.values = diffz.reshape(-1,1)
+    rotitp = interpolator(Cx, Cy)
+    
+    # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+    # z_cfun = make_ftc_cscore([15, 20, 3, 3, -1, 12, 4, -2, 3])
+    # z_sfun = make_ftc_sscore([0, 5, 5, 2,-1, 5, 3,-3, 1])
+    z_cfun = make_ftc_cscore([3, 8, 3, 3, -1, 12, 4, -2, 3])
+    z_sfun = make_ftc_sscore([-8, -3, 5, 2,-1, 5, 3,-3, 1])
+    zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
+    zbeta = gen_beta(rotgz,thrREF,zftcs)
+    # dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
+    # dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
+    dz_cfun = make_ftc_cscore([0,10,4,3,-2,9,4,-3,2])
+    dz_sfun = make_ftc_sscore([-10,-5,5,2,-1,8,2,-3,1])
+    dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
+    dzbeta = gen_beta(rotitp,thrdREF,dzftcs)
+    ############# Beta Z, dZ ############
+    zbeta[zbeta<0]=0
+    dzbeta[dzbeta<0]=0
+    pbeta = (zbeta+dzbeta)/2
+    pbeta[np.isnan(PARITP[:,:,0])] = np.nan
+    beta = pbeta-widecellz
+    beta[beta<0] = 0
+    ########## FTC beta #############
+
+    ########## NFGDA eval ###########
+    inputNF = np.zeros((*Cx.shape,6))
+    inputNF[:,:,0] = beta
+    inputNF[:,:,1] = PARITP[:,:,0] # reflectivity
+    inputNF[:,:,2] = PARITP[:,:,4] # cross_correlation_ratio
+    inputNF[:,:,3] = PARITP[:,:,5] # differential_reflectivity
+    inputNF[:,:,4] = stda
+    inputNF[:,:,5] = PARITP[:,:,3]
+
+    pnan = np.isnan(inputNF)
+    pnansum = np.max(pnan,2)
+    inputNF[pnansum,:] = np.nan
+
+    outputGST = fuzzGST.eval_fis(inputNF)
+    ########## NFGDA raw output ###########
+    ########## post-processing  ###########
+    # hh = outputGST>=0.24
+    hh = outputGST>=0.6
+    hGST = medfilt2d(hh.astype(float), kernel_size=3)
+    # smoothedhGST = gaussian_filter(hGST, sigma=1, mode='nearest')
+    # skel_nfout = skeletonize(smoothedhGST > 0.3)
+
+    binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
+    pskel_nfout = binary_dilation(binary_mask, disk(5))
+    skel_nfout = skeletonize(pskel_nfout*hh)
+    skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
+
+    # matout = os.path.join(exp_preds_event,'nf_pred'+os.path.basename(ifn)[5:-3]+'mat')
+    data_dict = {"nfout": skel_nfout2,"inputNF":inputNF,
+                "timestamp":PARROT_buf["timestamp"]}
+    if evalbox_on:
+        label_path = os.path.join('../V06/',process_tag,process_tag+'_labels')
+        mhandpick = os.path.join(label_path,ifn.split('/')[-1][9:-4]+'.mat')
+        try:
+            handpick = scipy.io.loadmat(mhandpick)
+            evalbox = handpick['evalbox']
+        except:
+            print(f'Warning: No {mhandpick} filling zeros.')
+            evalbox = np.zeros(Cx.shape)
+        interpolator.values = diffz.reshape(-1,1)
+        diffz = interpolator(Cx, Cy)
+        data_dict.update({"evalbox":evalbox, \
+            "diffz": diffz, \
+            'outputGST':outputGST})
+
+    # scipy.io.savemat(matout, data_dict)
+    # np.savez(matout[:-3]+'npz', **data_dict)
+    np.savez(get_nf_detection_name(ifn,path_config), **data_dict)
+    nfgda_fig(ifn)
+
+END_GATE = 400
+NUM_AZ = 720
+var_2_parrot_idx = {'reflectivity': 0, 'velocity': 1, 'spectrum_width': 2, 'differential_phase': 3,
+                'cross_correlation_ratio': 4, 'differential_reflectivity': 5}
+
+def get_nexrad(path_config,buf):
+    l2_file = buf.filename
+    if not os.path.exists(os.path.join(path_config.V06_dir,l2_file)):
+        aws_int.download(buf, path_config.V06_dir)
+        tprint(f"[Downloader] Got Volume: {l2_file}")
+        convert_v06_to_nf_input(l2_file,path_config)
+    else:
+        tprint(f"[Downloader] Already downloaded. Skip: {l2_file}")
+
+def ReadRadarSliceUpdate(radar, slice_idx):
+    """ Copied from https://github.com/PreciousJatau47/VAD_correction/blob/master/RadarHCAUtils.py
+    :param radar:
+    :param slice_idx:
+    :return:
+    """
+    radar_range = radar.range['data'] / 1000  # in km
+    sweep_ind = radar.get_slice(slice_idx)
+    radar_az_deg = radar.azimuth['data'][sweep_ind]  # in degrees
+    radar_el = radar.elevation['data'][sweep_ind]
+
+    ref_shape = radar.fields["reflectivity"]['data'][sweep_ind].shape
+    placeholder_matrix = np.full(ref_shape, np.nan, dtype=np.float64)
+    placeholder_mask = np.full(ref_shape, False, dtype=bool)
+
+    data_slice = []
+    labels_slice = list(radar.fields.keys())
+    labels_slice.sort()
+    mask_slice = []
+    var_mask_slice = []
+
+    for radar_product in labels_slice:
+        if np.sum(radar.fields[radar_product]['data'][sweep_ind].mask == False) > 0:
+            data_slice.append(radar.fields[radar_product]['data'][sweep_ind])
+            mask_slice.append(True)
+            var_mask_slice.append(radar.fields[radar_product]['data'][sweep_ind].mask)
+        else:
+            data_slice.append(placeholder_matrix)
+            mask_slice.append(False)
+            var_mask_slice.append(placeholder_mask)
+
+    return radar_range, radar_az_deg, radar_el, data_slice.copy(), mask_slice.copy(), labels_slice, var_mask_slice
+
+def get_nf_input_name(l2_file, path_config):
+    nf_input_file = l2_file.split('.')[0]+'.npz'
+    return os.path.join(path_config.nf_dir, nf_input_file)
+
+def get_nf_detection_name(l2_file, path_config):
+    matout = 'nf_pred'+l2_file+'.npz'
+    return os.path.join(path_config.nf_preds_dir, matout)
+
+def convert_v06_to_nf_input(l2_file, path_config):
+    v06_file = os.path.join(path_config.V06_dir,l2_file)
+    # l2_file = os.path.basename(v06_file)
+    if not (l2_file.endswith('_V06') or l2_file.startswith('._')):
+        print("[Converter] Skip: ", l2_file)
+        return
+
+    print("[Converter] Processing ", l2_file)
+
+    # # Output path.
+    # if not os.path.isdir(path_config.nf_dir):
+    #     os.makedirs(path_config.nf_dir,exist_ok=True)
+
+    # nf_input_file = l2_file.split('.')[0]+'.npz'
+
+    # py_path = os.path.join(nf_dir, nf_input_file)
+    py_path = get_nf_input_name(l2_file, path_config)
+    # read l2 data
+    radar_obj = pyart.io.read_nexrad_archive(v06_file)
+
+    # TODO(pjatau) erase below.
+    nsweeps = radar_obj.nsweeps
+    vcp = radar_obj.metadata['vcp_pattern']
+    print("[Converter] VCP: ", vcp)
+
+    # VCP 212.
+    # slices 0-2-4 contain only dual-pol. super res.
+    # slices 1-3-5 contain vel products. super res.
+    # slices >= 6 contain all products. normal res.
+
+    # Initialize data cube
+    # PARROT = np.ma.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)
+    PARROT = np.ma.array(np.ma.array(np.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)), mask=np.full((END_GATE, NUM_AZ, 6), True))
+    in_parrot = np.full(6,False)
+
+    for slice_idx in range(nsweeps):
+        radar_range, az_sweep_deg, radar_el, data_slice, mask_slice, labels_slice, data_mask_slice = ReadRadarSliceUpdate(
+            radar_obj, slice_idx)
+        print("Processing elevation {} degrees".format(np.nanmedian(radar_el)))
+        scan_el = np.nanmedian(radar_el)
+        # if abs(scan_el-target_el)>0.3:
+        #     continue
+
+        i_zero_az = np.argmin(np.abs(az_sweep_deg))
+        az_shift = -i_zero_az
+
+        var_idx_slice = {labels_slice[i]: i for i in range(len(labels_slice))}
+
+        for var in var_2_parrot_idx.keys():
+            i_var = var_idx_slice[var]
+            i_parrot = var_2_parrot_idx[var]
+
+            if not mask_slice[i_var] or in_parrot[i_parrot]:
+                continue
+            in_parrot[i_parrot] = True
+
+            print("Processing {}. parrot idx {}".format(var, i_parrot))
+
+            curr_data = data_slice[i_var][:, :END_GATE]
+            curr_mask = data_mask_slice[i_var][:, :END_GATE]
+            # curr_data[curr_mask] = np.nan  # (720, 400)
+            curr_data = np.roll(a=curr_data, shift=az_shift, axis=0)
+            PARROT[:, :, i_parrot] = curr_data.T
+            PARROT[:, :, i_parrot].mask = curr_mask.T
+        if np.min(in_parrot):
+            timestamp=np.datetime64(pyart.graph.common.generate_radar_time_sweep(radar_obj,slice_idx))
+            print("slice idx {} timestamp".format(slice_idx),timestamp)
+            break
+        print()
+    print()
+    # scipy.io.savemat(output_path, {"PARROT": PARROT})
+    np.savez(py_path, PARROT=PARROT.data,mask=PARROT.mask,timestamp=timestamp)
+
+GFG_NONE    = 0b00000
+GFG_LABEL   = 0b00001
+GFG_NFGDA   = 0b00010
+GFG_PREDICT = 0b00100
+class GFGroups:
+    ogn = np.array([Cx[0,0],Cy[0,0]])[:,np.newaxis]
+    shape = Cx.shape
+    def __init__(self, arc_anchors, timestamp=None, datakind = GFG_NONE):
+        self.arc_anchors = arc_anchors
+        self.timestamp = timestamp
+        self.cur_motions = np.full(arc_anchors.shape, np.nan)
+        self.pre_motions = np.full(arc_anchors.shape, np.nan)
+        self.next_gp = np.full(arc_anchors.shape[0], np.nan)
+        self.datakind = datakind
+    def anchors_to_arcs(self):
+        self.arc_points = []
+        if len(self.arc_anchors)!=0:
+            for nf_anchor in self.arc_anchors:
+                self.arc_points.append(rotation_polyfit(nf_anchor,2))
+        return self.arc_points
+    def anchors_to_arcs_map(self):
+        if len(self.arc_anchors)!=0:
+            self.anchors_to_arcs()
+            fit_points = np.concatenate(self.arc_points, axis=1)
+            self.arcs_map = points_to_binary_grid(fit_points,self.shape,self.ogn,0.5)
+            return self.arcs_map
+        else:
+            return np.zeros(self.shape,dtype=bool)
+
+    def save(self, file_path: str | Path):
+        """Save the GFGroups data to an .npz file"""
+        np.savez(
+            file_path,
+            arc_anchors=self.arc_anchors,
+            timestamp=self.timestamp,
+            cur_motions=self.cur_motions,
+            pre_motions=self.pre_motions,
+            next_gp=self.next_gp,
+            datakind = self.datakind,
+        )
+
+    @classmethod
+    def load(cls, file_path: str | Path) -> "GFGroups":
+        """Load a GFGroups object from an .npz file"""
+        file_path = Path(file_path)
+        data = np.load(file_path, allow_pickle=True)
+        obj = cls.__new__(cls)  # create instance without calling __init__
+        # assign directly
+        obj.arc_anchors = data["arc_anchors"]
+        obj.timestamp = data["timestamp"]
+        obj.cur_motions = data["cur_motions"]
+        obj.pre_motions = data["pre_motions"]
+        obj.next_gp = data["next_gp"]
+        obj.datakind = data["datakind"]
+        return obj
+
+class DataGFG(GFGroups):
+    n_anchors = 10
+    def __init__(self, data, binary_mask, kind = GFG_NONE):
+        arc_anchors = []
+        neighbors = convolve(binary_mask.astype(int), kernel, mode='constant') - binary_mask
+        branch = (binary_mask & (neighbors >= 3))
+        # Temporarily remove branch points
+        skel_wo_branches = binary_mask.copy()
+        skel_wo_branches[branch] = 0
+        self.groups = label(skel_wo_branches, connectivity=2)
+        # self.groups = label(binary_mask, connectivity=2)
+        reduce = []
+        for im in range(1,np.max(self.groups)+1):
+            mask = self.groups == im
+            gf_points = np.array([Cx[mask],Cy[mask]])
+            if gf_points.shape[1]>2:
+                rot_points = rotation_polyfit(gf_points,2,self.n_anchors)
+                arc_anchors.append(rot_points)
+            else:
+                reduce.append(im)
+        for im in reduce[::-1]:
+            self.groups[self.groups==im] = 0
+            self.groups[self.groups>=im] -= 1
+        super().__init__(np.array(arc_anchors),data['timestamp'],kind)
+
+
+
+def eval_nf(nfloc,evalline,evalbox,gd):
+    nfpredict = dilation(nfloc, disk(5))
+    Mhits = np.logical_and(evalline,nfpredict)
+    Mmiss = np.logical_and(evalline,~nfpredict)
+    q_arc = nf_arc(gd['Cx'],gd['Cy'],nfloc)
+    Mfa = np.logical_and(np.logical_not(evalbox),q_arc)
+    sch,scm,scf,scp = np.sum(Mhits), np.sum(Mmiss), np.sum(Mfa), np.sum(q_arc)
+    HR = 1e2*sch/(scm+sch)
+    FAR = 1e2*scf/(scp)
+    return (HR, FAR), (Mhits, Mmiss, Mfa, q_arc)
+
+def log_stat(fn, stats_list):
+    grouped = list(zip(*stats_list))
+    # Stack each group
+    stacked = [np.stack(arr_list) for arr_list in grouped]
+    # Create a dictionary with key names
+    save_dict = {
+    'hits':stacked[0], 
+    'miss':stacked[1], 
+    'fa':stacked[2], 
+    'q_arc':stacked[3]
+    }
+    # Save to .npz
+    np.savez(fn, **save_dict)
+    return save_dict
+
+def rotation_matrix_2d(theta):
+    """
+    Returns a 2×2 rotation matrix for rotating points counterclockwise by angle theta (in radians).
+    """
+    return np.array([
+        [np.cos(theta), -np.sin(theta)],
+        [np.sin(theta),  np.cos(theta)]
+    ])
+
+def find_roation_coord(points):
+    points_T = points.T  # shape = (N, 2)
+    dist_matrix = squareform(pdist(points_T))
+    i, j = np.unravel_index(np.argmax(dist_matrix), dist_matrix.shape)
+    max_dist = dist_matrix[i, j]
+    delta = points[:,i] - points[:,j]
+    angle = np.arctan2(delta[1], delta[0])
+    return angle, points[:,i]
+
+def rotation_polyfit(points,n):
+    # print(points.shape)
+    if points.shape[1]>2:
+        ang, origin = find_roation_coord(points)
+        rot_points = np.matmul(rotation_matrix_2d(-ang),points-origin[:,np.newaxis])
+        coeffs = np.polyfit(rot_points[0,:], rot_points[1,:], n)
+        fx = np.arange(np.min(rot_points[0,:]),np.max(rot_points[0,:])+0.25,0.25)
+        fy = np.polyval(coeffs, fx)
+        return np.matmul(rotation_matrix_2d(ang),np.array([fx,fy]))+origin[:,np.newaxis]
+    else:
+        return points
+
+def points_to_binary_grid(xy_points, gshape, origin, dg):
+    grid = np.zeros(gshape, dtype=bool)
+
+    # Round or floor the points to nearest integers
+    xy_int = ((xy_points-origin)//dg).astype(int)
+
+    # Clip to ensure they fall within bounds
+    xy_int[0, :] = np.clip(xy_int[0, :], 0, gshape[1] - 1)
+    xy_int[1, :] = np.clip(xy_int[1, :], 0, gshape[0] - 1)
+
+    grid[xy_int[1, :], xy_int[0, :]] = True # grid [y, x]
+    return grid
+
+def nf_arc(xx,yy,bw):
+    groups = label(bw, connectivity=2)
+    fit_chunks = []
+    for im in range(1,np.max(groups)+1):
+        mask = groups == im
+        gf_points = np.array([xx[mask],yy[mask]])
+        rot_points = rotation_polyfit(gf_points,2)
+        fit_chunks.append(rot_points)
+    ogn = np.array([xx[0,0],yy[0,0]])[:,np.newaxis]
+    if len(fit_chunks)!=0:
+        fit_points = np.concatenate(fit_chunks, axis=1)
+        return points_to_binary_grid(fit_points,xx.shape,ogn,0.5)
+    else:
+        return np.zeros(xx.shape,dtype=bool)
+
+# def clean_indices(idx,shp,edg):
+#     dim0 = idx[:,0]
+#     dim1 = idx[:,1]
+#     inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
+#     return idx[inbox,:]
+
+# def post_proc(inGST):
+#     hGST = medfilt2d(inGST.astype(float), kernel_size=3)
+#     binary_mask = post_moving_avg(hGST) >= 0.6  # Thresholding
+#     pskel_nfout = binary_dilation(binary_mask, disk(5))
+#     skel_nfout = skeletonize(pskel_nfout*inGST)
+#     skel_nfout2 = remove_small_objects(skel_nfout, min_size=10, connectivity=2)
+#     return skel_nfout2
+
+# gfv = [4, 32]
+class GFSpace:
+    def __init__(self, gfv = [18, 72]):
+        self.gfv = gfv
+        self.data =[]
+        self.nf_pair = []
+        self.nf_loc = []
+        self.tstamp = []
+    
+    def load_nf(self,fn):
+        self.data.append(np.load(fn))
+        self.tstamp.append(get_tstamp(fn))
+        self.nf_loc.append( {'x':Cx[self.data[-1]['nfout']],'y':Cy[self.data[-1]['nfout']],
+                             'idx':np.arange(Cx.size).reshape(Cx.shape)[self.data[-1]['nfout']]})
+        if len(self.nf_loc)>1:
+            self.nf_pair.append(self.connect_nf(self.nf_loc[-2],self.nf_loc[-1],(self.tstamp[-1]-self.tstamp[-2]).total_seconds()))
+        else:
+            self.shp = Cx.shape
+            
+    def connect_nf(self,t1,t2,dt):
+        A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
+        B = np.column_stack((t2['x'].reshape(-1), t2['y'].reshape(-1)))
+        # coord [dim_sample, dim_xy]
+        # coord [dim_sample, 2]
+        tree = cKDTree(A)
+        dists_for, indices_for = tree.query(B)
+        tree = cKDTree(B)
+        dists_bac, indices_bac = tree.query(A)
+        pair_pool = np.vstack((np.column_stack((indices_for,np.arange(B.shape[0]))),np.column_stack((np.arange(A.shape[0]),indices_bac)))).astype(int)
+        dists_pool = np.concatenate((dists_for,dists_bac),axis=0)
+        mask = np.logical_and(dists_pool > self.gfv[0]*dt/3600, dists_pool < self.gfv[1]*dt/3600)
+        return np.concatenate((pair_pool[mask,:],np.zeros(np.sum(mask),dtype=bool).reshape(-1,1)),axis=1)
+        
+        # return pair_pool[mask,:].astype(int)
+    def clean_short_track(self):
+        for ic in range(len(self.nf_pair)-1):
+            keep_mask = np.logical_or(np.isin(self.nf_pair[ic][:,1], np.unique(self.nf_pair[ic+1][:,0])),self.nf_pair[ic][:,2]>0)
+            self.nf_pair[ic] = self.nf_pair[ic][keep_mask,:]
+            self.nf_pair[ic+1][:,2] = np.logical_or(self.nf_pair[ic+1][:,2], np.isin(self.nf_pair[ic+1][:, 0], self.nf_pair[ic][:, 1]))
+    
+    def clean_random_track_motion(self):
+        self.cal_motion()
+        for ic in range(len(self.nf_pair)-1):
+            curdir = self.nf_pair[ic][:,-2]+1j*self.nf_pair[ic][:,-1]
+            nextdir = np.zeros(curdir.size)
+            for ip in range(curdir.size):
+                mask = self.nf_pair[ic+1][:,0]==self.nf_pair[ic][ip,1]
+                nextdir[ip] = np.mean(self.nf_pair[ic+1][mask,-2]+1j*self.nf_pair[ic+1][mask,-1],axis=0)
+            dirdiff = get_dirdiff(curdir,nextdir)
+            self.nf_pair[ic]=np.concatenate((self.nf_pair[ic],dirdiff.reshape(-1,1)),axis=1)
+        
+    def cal_motion(self):
+        for ic in range(len(self.nf_pair)):
+            t1 = self.nf_loc[ic]
+            t2 = self.nf_loc[ic+1]
+            A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
+            B = np.column_stack((t2['x'].reshape(-1), t2['y'].reshape(-1)))
+            start = A[self.nf_pair[ic][:,0]]
+            end = B[self.nf_pair[ic][:,1]]
+            motion = end-start
+            self.nf_pair[ic]=np.concatenate((self.nf_pair[ic],motion),axis=1)
+    
+    def get_cln_nf(self,ic):
+        buf = np.zeros(self.shp,dtype=bool).reshape(-1)
+        buf[self.nf_loc[ic]['idx'][self.nf_pair[ic][:,0].astype(int)]]=True
+        return buf.reshape(self.shp)
+        # return remove_small_objects(buf.reshape(self.shp), min_size=5, connectivity=2)
+
+def get_tstamp(ppi_file):
+    ppi_id = os.path.basename(ppi_file)
+    ppi_name = ppi_id[11:]
+    date_part = ppi_name[4:12]   # 5:12 in MATLAB → 4:12 in Python
+    time_part = ppi_name[13:19]  # 14:19 in MATLAB → 13:19 in Python
+    tstamp_date = datetime.strptime(date_part, "%Y%m%d")
+    tstamp_time = datetime.strptime(time_part, "%H%M%S").time()
+    tstamp = datetime.combine(tstamp_date.date(), tstamp_time)
+    return tstamp
+
+def get_dirdiff(dir1,dir2):
+    return np.rad2deg(np.angle(dir1*np.conj(dir2)))
+
+def nfgda_fig(l2_file):
+    py_path = get_nf_input_name(l2_file, path_config)
+    
+    data = np.load(py_path)
+    gps = DataGFG(data,data['nfout'])
+    fig, axs = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
+    # figpmap, axspmap = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
+    pdata = np.ma.masked_where(rmask,data['inputNF'][:,:,1])
+    pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
+    axs.plot(gps.arc_anchors[:,0,:].T,gps.arc_anchors[:,1,:].T,alpha=0.5)
+
+    # axs.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
+    # for iframe in range(pframe-max_predict,pframe):
+    #     if iframe<0:
+    #         continue
+    #     print(f'[{iframe}] -> [{pframe}]')
+    #     dt = (worker.gps[pframe].timestamp-worker.gps[iframe].timestamp)/np.timedelta64(60, 's')
+    #     if worker.connects[iframe].igp_anchor.ndim>1:
+    #         ele_w = exp_weight(dt,ele_t_const)
+    #         mean_w = exp_weight(dt,mean_t_const)
+    #         # ele_w = 1
+    #         # mean_w = 1
+    #         ps += ele_w + mean_w
+    #         end = worker.prediction(iframe, dt)
+    #         axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=((0.5+0.5*(pframe-iframe)/max_predict),0,0),label='point',alpha=0.5)
+    #         pgf += ele_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
+
+    #         end = worker.prediction(iframe, dt,mode='mean')
+    #         axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=(0,0,(0.5+0.5*(pframe-iframe)/max_predict)),label='mean',alpha=0.5)
+    #         pgf += mean_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
+    # pgf=pgf/ps*1e2
+
+
+    # pcm=axspmap.pcolormesh(Cx,Cy,pgf,vmin=0,vmax=80,cmap='jet')
+    # axspmap.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
+
+    # cbar=plt.colorbar(pcm,ax=axspmap, pad=0.07)
+    # cbar.set_label('Gust Front Proxy', fontsize=10, labelpad=2, rotation=90)
+    # cbar.ax.yaxis.set_label_position('left')
+    # cbar=plt.colorbar(pcz,ax=axs, pad=0.07)
+    # cbar.set_label('Reflectivity (dBZ)', fontsize=10, labelpad=2, rotation=90)
+    # cbar.ax.yaxis.set_label_position('left')
+
+    # handles, labels = axs.get_legend_handles_labels()
+    # by_label = dict(zip(labels, handles))
+    # axs.legend(by_label.values(), by_label.keys(),loc='upper left', fontsize='small')
+    # axspmap.set_title(gps[iframe].timestamp)
+    valid_time = gps.timestamp
+
+    # for fg in [fig,figpmap]:
+    #             fig.subplots_adjust(left=0.125, right=0.985, bottom=0.08, top=0.95)
+    fig.suptitle(valid_time.astype(datetime.datetime).item().strftime('%Y/%m/%d %H:%M:%S'),y=0.95)
+    axs.set_xlim(-100,100)
+    axs.set_ylim(-100,100)
+    axs.set_xlabel('x(km)')
+    axs.set_ylabel('y(km)',labelpad=-10)
+    axs.set_aspect('equal')
+    fig.savefig(py_path[:-3]+'png')
+    plt.close(fig)
+
+    # exp_preds_event = export_preds_dir + case_name
+    # savedir = os.path.join(fig_dir, case_name)
+    # os.makedirs(savedir,exist_ok=True)
+
+    # export_preds_fapos_event = export_preds_fapos_dir + case_name
+    # os.makedirs(export_preds_fapos_event,exist_ok=True)
+
+    # npz_list = glob.glob(exp_preds_event + "/*npz")
+    # wgfspace = GFSpace([18,72])
+    # for ppi_file in npz_list:
+    #     wgfspace.load_nf(ppi_file)
+    # # wgfspace.clean_short_track()
+    # # wgfspace.clean_random_track_motion()
+    # # Cx = wgfspace.data[0]['xi2']
+    # # Cy = wgfspace.data[0]['yi2']
+    # r = np.sqrt(Cx**2+Cy**2)
+    # rmask = r>=100
+    
+    # tvec = wgfspace.tstamp[:-1]
+    # hr_pre = []
+    # hr_pos = []
+    # fa_pre = []
+    # fa_pos = []
+    # stat_pre = []
+    # stat_pos = []
+    # for ic,data in enumerate(wgfspace.data[:-1]):
+    #     if evalbox_on:
+    #         evalbox = data['evalbox']
+    #     else:
+    #         evalbox = np.zeros(Cx.shape)
+    #     evalline = skeletonize(evalbox)
+    #     # gcoord = {'Cx':data['xi2'],'Cy':data['yi2']}
+    #     gcoord = {'Cx':Cx,'Cy':Cy}
+    #     (hr,fa), eval_pre = eval_nf(data['nfout'],evalline,evalbox,gcoord)
+    #     hr_pre.append(hr)
+    #     fa_pre.append(fa)
+    #     stat_pre.append(eval_pre)
+
+    #     proc_nf = wgfspace.get_cln_nf(ic)
+    #     matout = export_preds_fapos_event + '/' + npz_list[ic].split('/')[-1]
+    #     # data_dict = {"xi2":Cx,"yi2":Cy,"REF":data['REF'], \
+    #     #             "nfout": proc_nf,"inputNF":data['inputNF'],
+    #     #             "evalbox":evalbox}
+    #     #             # ,'outputGST':data['outputGST']}
+    #     # scipy.io.savemat(matout, data_dict)
+
+    #     (hr,fa), eval_pos = eval_nf(proc_nf,evalline,evalbox,gcoord)
+    #     hr_pos.append(hr)
+    #     fa_pos.append(fa)
+    #     stat_pos.append(eval_pos)
+
+    #     ppi_file = npz_list[ic]
+    #     print(ppi_file)
+    #     ppi_id = os.path.basename(ppi_file)
+    #     ppi_name = ppi_id[11:]  # MATLAB 12:end is Python 11: (0-based)
+    #     date_part = ppi_name[4:12]   # 5:12 in MATLAB → 4:12 in Python
+    #     time_part = ppi_name[13:19]
+    
+    #     radar_id = ppi_name[0:4]  # 1:4 in MATLAB → 0:4 in Python
+    #     tstamp_date = datetime.strptime(date_part, "%Y%m%d")
+    #     tstamp_time = datetime.strptime(time_part, "%H%M%S").time()
+    #     tstamp = datetime.combine(tstamp_date.date(), tstamp_time)
+    #     ppi_desc = f"{radar_id}, {tstamp.strftime('%m/%d/%Y, %H:%M:%S %Z')}"
+    
+    
+    #     fig, axs = plt.subplots(1, 2, figsize=(7/0.7, 2.5/0.7),dpi=250, gridspec_kw=dict(left=0.08, right=1-0.085, top=1-0.08, bottom=0.06, wspace=0.25, hspace=0.16))
+    #     REF = data['inputNF'][:,:,1]
+    #     pdata = np.ma.masked_where(rmask,REF)
+
+    #     def plot_nf(ax,nfout,hrt,fat,evalmasks):
+    #         # evalbox = data['evalbox']
+    #         nfloc = np.logical_and(~rmask,nfout)
+    #         # nfpredict = dilation(nfloc, disk(5))
+    #         # Mhits = np.logical_and(evalline,nfpredict)
+    #         # Mmiss = np.logical_and(evalline,~nfpredict)
+    #         ax.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
+
+    #         ax.plot(Cx[nfloc],Cy[nfloc],'k.',markersize=0.8)
+    #         ax.plot(Cx[np.logical_and(nfloc,evalbox)],Cy[np.logical_and(nfloc,evalbox)],'r.',markersize=0.8)
+    #         ax.plot(Cx[evalmasks[3]],Cy[evalmasks[3]],'.',color=(1,0.5,0),markersize=0.8)
+    #         ax.plot(Cx[evalmasks[2]],Cy[evalmasks[2]],'.',color=(1,0,1),markersize=0.8)
+    #         ax.plot(Cx[evalmasks[1]],Cy[evalmasks[1]],'b.',markersize=0.8)
+    #         ax.plot(Cx[evalmasks[0]],Cy[evalmasks[0]],'.',color=(0,1,0),markersize=0.8)
+    #         ax.contour(Cx,Cy,evalbox,[0.5], colors='y',linewidths=0.8)
+    #         ax.text(0.025, 0.975,  f'PLD = {hrt:.2f}%\nPFD = {fat:.2f}%', 
+    #                  transform=ax.transAxes, verticalalignment='top', fontsize=7)
+    #         # ax.text(0.025, 0.975,  f'PLD = {hrt:.2f}%\nPFD = {fat:.2f}%', 
+    #         #          transform=ax.transAxes, verticalalignment='top', fontsize=7)
+    #         ax.set_title(ppi_desc)
+    #         ax.axis('equal')
+    #         phelp.add_cbar(ax.collections[0],fig,ax,unit_text = varunit_table['Zh'],size='3%')
+    #     plot_nf(axs[0],data['nfout'],hr_pre[-1],fa_pre[-1],eval_pre)
+    #     plot_nf(axs[1],proc_nf,hr_pos[-1],fa_pos[-1],eval_pos)
+    #     if label_on:
+    #         axs[0].plot(sitex/1e3, sitey/1e3, 'r*', markersize=8)
+    #         axs[1].plot(sitex/1e3, sitey/1e3, 'r*', markersize=8)
+    #     fig.savefig(os.path.join(savedir, ppi_id[:-4]+'.png'))
+    #     plt.close(fig)
+
+    # summ_pre = log_stat(os.path.join(savedir, 'stat_pre.npz'),stat_pre)
+    # summ_pos = log_stat(os.path.join(savedir, 'stat_pos.npz'),stat_pos)
+    # PLD = 1e2*np.sum(summ_pre['hits'])/(np.sum(summ_pre['hits'])+np.sum(summ_pre['miss']))
+    # PFD = 1e2*np.sum(summ_pre['fa'])/(np.sum(summ_pre['q_arc']))
+    # PLDp = 1e2*np.sum(summ_pos['hits'])/(np.sum(summ_pos['hits'])+np.sum(summ_pos['miss']))
+    # PFDp = 1e2*np.sum(summ_pos['fa'])/(np.sum(summ_pos['q_arc']))
+
+    # figst, axs = plt.subplots(1, 1, figsize=(4/0.65, 3/0.65),dpi=250, gridspec_kw=dict(left=0.08, right=1-0.085, top=1-0.08, bottom=0.06, wspace=0.25, hspace=0.16))
+
+    # axs.plot(tvec,hr_pre,'b-',label=f'PLD : {PLD:.1f}%')
+    # axs.plot(tvec,np.array(fa_pre),'r-',label=f'PFD : {PFD:.1f}%')
+    # axs.plot(tvec,hr_pos, 'b--',label=f'PLD* : {PLDp:.1f}%')
+    # axs.plot(tvec,np.array(fa_pos), 'r--',label=f'PFD* : {PFDp:.1f}%')
+    # axs.set_ylim(0,100.5)
+    # axs.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
+    # figst.autofmt_xdate()
+    # axs.set_title(case_name,loc='left')
+    # # plt.xlabel('Time (Frame)')
+    # axs.set_ylabel('Percentage (%)')
+    # axs.grid()
+    # # lines = plt.gca().get_lines()
+    # plt.legend(ncol=2,loc='lower right',
+    # bbox_to_anchor=(1, 1.02),  # (x=1 means right end of axes, y=just above)
+    # borderaxespad=0,
+    # frameon=True)
+    # # figst.tight_layout()
+    # figst.savefig(os.path.join(savedir, 'far_com.png'),bbox_inches='tight')
+    # plt.close(figst)
+    # return wgfspace
