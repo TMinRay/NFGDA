@@ -4,8 +4,10 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 import scipy.io
 from scipy.signal import medfilt2d
+from scipy.spatial.distance import pdist, squareform
 # from scipy.ndimage import gaussian_filter
 from skimage.morphology import skeletonize, disk, binary_dilation, remove_small_objects
+from skimage.measure import label
 import matplotlib.pyplot as plt
 import sys
 import os
@@ -13,6 +15,14 @@ import datetime
 from NFGDA_load_config import *
 import pyart
 from pathlib import Path
+import nf_path
+from scipy.ndimage import convolve
+kernel = np.ones((3,3), dtype=int)
+
+import tminlib.colorlevel as cl
+VM=cl.VarMap()
+varname_table=VM.varname_table
+varunit_table=VM.varunit_table
 
 import nexradaws
 aws_int = nexradaws.NexradAwsInterface()
@@ -171,14 +181,14 @@ def nfgda_unit_step(l2_file_0,l2_file_1,process_tag=''):
     # os.makedirs(exp_preds_event,exist_ok=True)
 
     # buf = np.load(l2_file_0)
-    buf = np.load(get_nf_input_name(l2_file_0,path_config))
+    buf = np.load(nf_path.get_nf_input_name(l2_file_0,path_config))
     PARROT0 = buf['PARROT']
     if PARROT_mask_on:
         PARROT0[buf['mask']] = np.nan
     PARROT0 = np.asfortranarray(PARROT0)
 
     # PARROT_buf = np.load(l2_file_1)
-    PARROT_buf = np.load(get_nf_input_name(l2_file_1,path_config))
+    PARROT_buf = np.load(nf_path.get_nf_input_name(l2_file_1,path_config))
     PARROT = PARROT_buf['PARROT']
     if PARROT_mask_on:
         PARROT[PARROT_buf['mask']] = np.nan
@@ -314,7 +324,7 @@ def nfgda_unit_step(l2_file_0,l2_file_1,process_tag=''):
 
     # scipy.io.savemat(matout, data_dict)
     # np.savez(matout[:-3]+'npz', **data_dict)
-    np.savez(get_nf_detection_name(ifn,path_config), **data_dict)
+    np.savez(nf_path.get_nf_detection_name(ifn,path_config), **data_dict)
     nfgda_fig(ifn)
 
 END_GATE = 400
@@ -330,6 +340,7 @@ def get_nexrad(path_config,buf):
         convert_v06_to_nf_input(l2_file,path_config)
     else:
         tprint(f"[Downloader] Already downloaded. Skip: {l2_file}")
+    return
 
 def ReadRadarSliceUpdate(radar, slice_idx):
     """ Copied from https://github.com/PreciousJatau47/VAD_correction/blob/master/RadarHCAUtils.py
@@ -364,15 +375,15 @@ def ReadRadarSliceUpdate(radar, slice_idx):
 
     return radar_range, radar_az_deg, radar_el, data_slice.copy(), mask_slice.copy(), labels_slice, var_mask_slice
 
-def get_nf_input_name(l2_file, path_config):
-    nf_input_file = l2_file.split('.')[0]+'.npz'
-    return os.path.join(path_config.nf_dir, nf_input_file)
+# def get_nf_input_name(l2_file, path_config):
+#     nf_input_file = l2_file.split('.')[0]+'.npz'
+#     return os.path.join(path_config.nf_dir, nf_input_file)
 
-def get_nf_detection_name(l2_file, path_config):
-    matout = 'nf_pred'+l2_file+'.npz'
-    return os.path.join(path_config.nf_preds_dir, matout)
+# def get_nf_detection_name(l2_file, path_config):
+#     matout = 'nf_pred'+l2_file+'.npz'
+#     return os.path.join(path_config.nf_preds_dir, matout)
 
-def convert_v06_to_nf_input(l2_file, path_config):
+def convert_v06_to_nf_input(l2_file, path_config,debug=False):
     v06_file = os.path.join(path_config.V06_dir,l2_file)
     # l2_file = os.path.basename(v06_file)
     if not (l2_file.endswith('_V06') or l2_file.startswith('._')):
@@ -388,7 +399,7 @@ def convert_v06_to_nf_input(l2_file, path_config):
     # nf_input_file = l2_file.split('.')[0]+'.npz'
 
     # py_path = os.path.join(nf_dir, nf_input_file)
-    py_path = get_nf_input_name(l2_file, path_config)
+    py_path = nf_path.get_nf_input_name(l2_file, path_config)
     # read l2 data
     radar_obj = pyart.io.read_nexrad_archive(v06_file)
 
@@ -410,7 +421,7 @@ def convert_v06_to_nf_input(l2_file, path_config):
     for slice_idx in range(nsweeps):
         radar_range, az_sweep_deg, radar_el, data_slice, mask_slice, labels_slice, data_mask_slice = ReadRadarSliceUpdate(
             radar_obj, slice_idx)
-        print("Processing elevation {} degrees".format(np.nanmedian(radar_el)))
+        debug and print("Processing elevation {} degrees".format(np.nanmedian(radar_el)))
         scan_el = np.nanmedian(radar_el)
         # if abs(scan_el-target_el)>0.3:
         #     continue
@@ -428,7 +439,7 @@ def convert_v06_to_nf_input(l2_file, path_config):
                 continue
             in_parrot[i_parrot] = True
 
-            print("Processing {}. parrot idx {}".format(var, i_parrot))
+            debug and print("Processing {}. parrot idx {}".format(var, i_parrot))
 
             curr_data = data_slice[i_var][:, :END_GATE]
             curr_mask = data_mask_slice[i_var][:, :END_GATE]
@@ -438,7 +449,7 @@ def convert_v06_to_nf_input(l2_file, path_config):
             PARROT[:, :, i_parrot].mask = curr_mask.T
         if np.min(in_parrot):
             timestamp=np.datetime64(pyart.graph.common.generate_radar_time_sweep(radar_obj,slice_idx))
-            print("slice idx {} timestamp".format(slice_idx),timestamp)
+            debug and print("slice idx {} timestamp".format(slice_idx),timestamp)
             break
         print()
     print()
@@ -526,7 +537,86 @@ class DataGFG(GFGroups):
             self.groups[self.groups>=im] -= 1
         super().__init__(np.array(arc_anchors),data['timestamp'],kind)
 
+class Prediction_Connection:
+    def __init__(self, endidx, flip, igps, egps):
+        self.endidx = endidx
+        self.flip = flip
+        self.igp_anchor = np.array(igps.arc_anchors)
+        self.egp_anchor = np.array(egps.arc_anchors)
+        self.motions = np.full(self.igp_anchor.shape,np.nan)
+        self.speeds = np.full(self.igp_anchor.shape[0],np.nan)
+        self.dt = (egps.timestamp - igps.timestamp)/np.timedelta64(60, 's')
+        self.make_motion()
+        self.copy_motion(igps, egps)
+    def make_motion(self):
+        for ii, ie in enumerate(self.endidx):
+            ep = self.egp_anchor[ie]
+            if self.flip[ii]:
+                ep = np.fliplr(ep)
+            self.motions[ii] = ep-self.igp_anchor[ii]
+        self.motions = self.motions/self.dt 
+        if self.motions.ndim>1:
+            self.speeds = np.sqrt(np.sum(self.motions**2,axis=1))
+    def copy_motion(self, igps, egps):
+        igps.next_gp = self.endidx
+        igps.cur_motions = self.motions
+        for ii, ie in enumerate(set(self.endidx)):
+            egps.pre_motions[ie] = np.mean(self.motions[self.endidx==ie].reshape(-1,2,egps.n_anchors),axis=0)
+            # if np.sum(self.endidx==ie)>1:
+            #     print(egps.pre_motions[ie],self.motions[self.endidx==ie].shape,self.flip[self.endidx==ie])
 
+class Prediction_Worker:
+    def __init__(self, gps):
+        self.gps = gps
+        self.connects = {}
+    def update_velocitys(self, k=None):
+        if k is None:
+            for ig in range(len(self.gps)-1):
+                A = self.gps[ig]
+                B = self.gps[ig+1]
+                # endidx, flip, dist = self.GFG_motion(A.arc_anchors,B.arc_anchors)
+                # self.connects[ig] = Prediction_Connection(endidx, flip, A, B, ig)
+                self.GFG_motion(A,B,ig)
+        else:
+            A = self.gps[k]
+            B = self.gps[k+1]
+            # endidx, flip, dist = self.GFG_motion(A.arc_anchors,B.arc_anchors)
+            # self.connects[k] = Prediction_Connection(endidx, flip, A, B)
+            self.GFG_motion(A,B,k)
+    def GFG_motion(self,sgfg,egfg,conn):
+        A = sgfg.arc_anchors
+        B = egfg.arc_anchors
+        if (A.ndim != 3) or (B.ndim != 3):
+            # print(A,B)
+            self.connects[conn] = Prediction_Connection([], [], sgfg, egfg)
+        else:
+            A_exp = A[:, None, :, :]
+            B_exp = B[None, :, :, :]
+
+            # Compute normal distances (mean over last axis=2, then mean over coordinates)
+            dist_norm = np.linalg.norm(A_exp - B_exp, axis=2)
+            
+            # Compute flipped distances
+            B_flip = B[:, :, ::-1]  # flip along the sample axis (10)
+            B_flip_exp = B_flip[None, :, :, :]
+            dist_flip = np.linalg.norm(A_exp - B_flip_exp, axis=2)
+            
+            # Choose the smaller distance
+            dist_final = np.max(dist_norm, axis=-1).copy()
+            flip_arc = np.sum(dist_norm, axis=-1) > np.sum(dist_flip, axis=-1)
+            dist_final[flip_arc]=np.max(dist_flip, axis=-1)[flip_arc]
+            
+            endpoint = np.argmin(dist_final,1)
+            self.connects[conn] = Prediction_Connection(endpoint, flip_arc[np.arange(endpoint.size),endpoint], sgfg, egfg)
+            # return endpoint, flip_arc[np.arange(endpoint.size),endpoint], dist_final[np.arange(endpoint.size),endpoint]
+    def prediction(self,startf,dt,mode='element'):
+        if mode == 'mean':
+            anchors = self.connects[startf].igp_anchor+np.mean(self.connects[startf].motions,axis=2)[:,:,np.newaxis]*dt
+            tstp = self.gps[startf].timestamp + dt*np.timedelta64(1, 'm')
+        elif mode == 'element':
+            anchors = self.connects[startf].igp_anchor+self.connects[startf].motions*dt
+            tstp = self.gps[startf].timestamp + dt*np.timedelta64(1, 'm')
+        return GFGroups(anchors,tstp)
 
 def eval_nf(nfloc,evalline,evalbox,gd):
     nfpredict = dilation(nfloc, disk(5))
@@ -572,13 +662,16 @@ def find_roation_coord(points):
     angle = np.arctan2(delta[1], delta[0])
     return angle, points[:,i]
 
-def rotation_polyfit(points,n):
+def rotation_polyfit(points,n,fitn=None):
     # print(points.shape)
     if points.shape[1]>2:
         ang, origin = find_roation_coord(points)
         rot_points = np.matmul(rotation_matrix_2d(-ang),points-origin[:,np.newaxis])
         coeffs = np.polyfit(rot_points[0,:], rot_points[1,:], n)
-        fx = np.arange(np.min(rot_points[0,:]),np.max(rot_points[0,:])+0.25,0.25)
+        if fitn is None:
+            fx = np.arange(np.min(rot_points[0,:]),np.max(rot_points[0,:])+0.25,0.25)
+        else:
+            fx = np.linspace(np.min(rot_points[0,:]),np.max(rot_points[0,:]),fitn)
         fy = np.polyval(coeffs, fx)
         return np.matmul(rotation_matrix_2d(ang),np.array([fx,fy]))+origin[:,np.newaxis]
     else:
@@ -627,72 +720,72 @@ def nf_arc(xx,yy,bw):
 #     return skel_nfout2
 
 # gfv = [4, 32]
-class GFSpace:
-    def __init__(self, gfv = [18, 72]):
-        self.gfv = gfv
-        self.data =[]
-        self.nf_pair = []
-        self.nf_loc = []
-        self.tstamp = []
+# class GFSpace:
+#     def __init__(self, gfv = [18, 72]):
+#         self.gfv = gfv
+#         self.data =[]
+#         self.nf_pair = []
+#         self.nf_loc = []
+#         self.tstamp = []
     
-    def load_nf(self,fn):
-        self.data.append(np.load(fn))
-        self.tstamp.append(get_tstamp(fn))
-        self.nf_loc.append( {'x':Cx[self.data[-1]['nfout']],'y':Cy[self.data[-1]['nfout']],
-                             'idx':np.arange(Cx.size).reshape(Cx.shape)[self.data[-1]['nfout']]})
-        if len(self.nf_loc)>1:
-            self.nf_pair.append(self.connect_nf(self.nf_loc[-2],self.nf_loc[-1],(self.tstamp[-1]-self.tstamp[-2]).total_seconds()))
-        else:
-            self.shp = Cx.shape
+#     def load_nf(self,fn):
+#         self.data.append(np.load(fn))
+#         self.tstamp.append(get_tstamp(fn))
+#         self.nf_loc.append( {'x':Cx[self.data[-1]['nfout']],'y':Cy[self.data[-1]['nfout']],
+#                              'idx':np.arange(Cx.size).reshape(Cx.shape)[self.data[-1]['nfout']]})
+#         if len(self.nf_loc)>1:
+#             self.nf_pair.append(self.connect_nf(self.nf_loc[-2],self.nf_loc[-1],(self.tstamp[-1]-self.tstamp[-2]).total_seconds()))
+#         else:
+#             self.shp = Cx.shape
             
-    def connect_nf(self,t1,t2,dt):
-        A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
-        B = np.column_stack((t2['x'].reshape(-1), t2['y'].reshape(-1)))
-        # coord [dim_sample, dim_xy]
-        # coord [dim_sample, 2]
-        tree = cKDTree(A)
-        dists_for, indices_for = tree.query(B)
-        tree = cKDTree(B)
-        dists_bac, indices_bac = tree.query(A)
-        pair_pool = np.vstack((np.column_stack((indices_for,np.arange(B.shape[0]))),np.column_stack((np.arange(A.shape[0]),indices_bac)))).astype(int)
-        dists_pool = np.concatenate((dists_for,dists_bac),axis=0)
-        mask = np.logical_and(dists_pool > self.gfv[0]*dt/3600, dists_pool < self.gfv[1]*dt/3600)
-        return np.concatenate((pair_pool[mask,:],np.zeros(np.sum(mask),dtype=bool).reshape(-1,1)),axis=1)
+#     def connect_nf(self,t1,t2,dt):
+#         A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
+#         B = np.column_stack((t2['x'].reshape(-1), t2['y'].reshape(-1)))
+#         # coord [dim_sample, dim_xy]
+#         # coord [dim_sample, 2]
+#         tree = cKDTree(A)
+#         dists_for, indices_for = tree.query(B)
+#         tree = cKDTree(B)
+#         dists_bac, indices_bac = tree.query(A)
+#         pair_pool = np.vstack((np.column_stack((indices_for,np.arange(B.shape[0]))),np.column_stack((np.arange(A.shape[0]),indices_bac)))).astype(int)
+#         dists_pool = np.concatenate((dists_for,dists_bac),axis=0)
+#         mask = np.logical_and(dists_pool > self.gfv[0]*dt/3600, dists_pool < self.gfv[1]*dt/3600)
+#         return np.concatenate((pair_pool[mask,:],np.zeros(np.sum(mask),dtype=bool).reshape(-1,1)),axis=1)
         
-        # return pair_pool[mask,:].astype(int)
-    def clean_short_track(self):
-        for ic in range(len(self.nf_pair)-1):
-            keep_mask = np.logical_or(np.isin(self.nf_pair[ic][:,1], np.unique(self.nf_pair[ic+1][:,0])),self.nf_pair[ic][:,2]>0)
-            self.nf_pair[ic] = self.nf_pair[ic][keep_mask,:]
-            self.nf_pair[ic+1][:,2] = np.logical_or(self.nf_pair[ic+1][:,2], np.isin(self.nf_pair[ic+1][:, 0], self.nf_pair[ic][:, 1]))
+#         # return pair_pool[mask,:].astype(int)
+#     def clean_short_track(self):
+#         for ic in range(len(self.nf_pair)-1):
+#             keep_mask = np.logical_or(np.isin(self.nf_pair[ic][:,1], np.unique(self.nf_pair[ic+1][:,0])),self.nf_pair[ic][:,2]>0)
+#             self.nf_pair[ic] = self.nf_pair[ic][keep_mask,:]
+#             self.nf_pair[ic+1][:,2] = np.logical_or(self.nf_pair[ic+1][:,2], np.isin(self.nf_pair[ic+1][:, 0], self.nf_pair[ic][:, 1]))
     
-    def clean_random_track_motion(self):
-        self.cal_motion()
-        for ic in range(len(self.nf_pair)-1):
-            curdir = self.nf_pair[ic][:,-2]+1j*self.nf_pair[ic][:,-1]
-            nextdir = np.zeros(curdir.size)
-            for ip in range(curdir.size):
-                mask = self.nf_pair[ic+1][:,0]==self.nf_pair[ic][ip,1]
-                nextdir[ip] = np.mean(self.nf_pair[ic+1][mask,-2]+1j*self.nf_pair[ic+1][mask,-1],axis=0)
-            dirdiff = get_dirdiff(curdir,nextdir)
-            self.nf_pair[ic]=np.concatenate((self.nf_pair[ic],dirdiff.reshape(-1,1)),axis=1)
+#     def clean_random_track_motion(self):
+#         self.cal_motion()
+#         for ic in range(len(self.nf_pair)-1):
+#             curdir = self.nf_pair[ic][:,-2]+1j*self.nf_pair[ic][:,-1]
+#             nextdir = np.zeros(curdir.size)
+#             for ip in range(curdir.size):
+#                 mask = self.nf_pair[ic+1][:,0]==self.nf_pair[ic][ip,1]
+#                 nextdir[ip] = np.mean(self.nf_pair[ic+1][mask,-2]+1j*self.nf_pair[ic+1][mask,-1],axis=0)
+#             dirdiff = get_dirdiff(curdir,nextdir)
+#             self.nf_pair[ic]=np.concatenate((self.nf_pair[ic],dirdiff.reshape(-1,1)),axis=1)
         
-    def cal_motion(self):
-        for ic in range(len(self.nf_pair)):
-            t1 = self.nf_loc[ic]
-            t2 = self.nf_loc[ic+1]
-            A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
-            B = np.column_stack((t2['x'].reshape(-1), t2['y'].reshape(-1)))
-            start = A[self.nf_pair[ic][:,0]]
-            end = B[self.nf_pair[ic][:,1]]
-            motion = end-start
-            self.nf_pair[ic]=np.concatenate((self.nf_pair[ic],motion),axis=1)
+#     def cal_motion(self):
+#         for ic in range(len(self.nf_pair)):
+#             t1 = self.nf_loc[ic]
+#             t2 = self.nf_loc[ic+1]
+#             A = np.column_stack((t1['x'].reshape(-1), t1['y'].reshape(-1)))
+#             B = np.column_stack((t2['x'].reshape(-1), t2['y'].reshape(-1)))
+#             start = A[self.nf_pair[ic][:,0]]
+#             end = B[self.nf_pair[ic][:,1]]
+#             motion = end-start
+#             self.nf_pair[ic]=np.concatenate((self.nf_pair[ic],motion),axis=1)
     
-    def get_cln_nf(self,ic):
-        buf = np.zeros(self.shp,dtype=bool).reshape(-1)
-        buf[self.nf_loc[ic]['idx'][self.nf_pair[ic][:,0].astype(int)]]=True
-        return buf.reshape(self.shp)
-        # return remove_small_objects(buf.reshape(self.shp), min_size=5, connectivity=2)
+#     def get_cln_nf(self,ic):
+#         buf = np.zeros(self.shp,dtype=bool).reshape(-1)
+#         buf[self.nf_loc[ic]['idx'][self.nf_pair[ic][:,0].astype(int)]]=True
+#         return buf.reshape(self.shp)
+#         # return remove_small_objects(buf.reshape(self.shp), min_size=5, connectivity=2)
 
 def get_tstamp(ppi_file):
     ppi_id = os.path.basename(ppi_file)
@@ -708,7 +801,7 @@ def get_dirdiff(dir1,dir2):
     return np.rad2deg(np.angle(dir1*np.conj(dir2)))
 
 def nfgda_fig(l2_file):
-    py_path = get_nf_input_name(l2_file, path_config)
+    py_path = nf_path.get_nf_detection_name(l2_file, path_config)
     
     data = np.load(py_path)
     gps = DataGFG(data,data['nfout'])
@@ -716,7 +809,9 @@ def nfgda_fig(l2_file):
     # figpmap, axspmap = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
     pdata = np.ma.masked_where(rmask,data['inputNF'][:,:,1])
     pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
-    axs.plot(gps.arc_anchors[:,0,:].T,gps.arc_anchors[:,1,:].T,alpha=0.5)
+    # print(np.sum(data['nfout']),gps.arc_anchors)
+    if np.sum(data['nfout'])>0:
+        axs.plot(gps.arc_anchors[:,0,:].T,gps.arc_anchors[:,1,:].T,alpha=0.7,color='k')
 
     # axs.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
     # for iframe in range(pframe-max_predict,pframe):
@@ -782,8 +877,7 @@ def nfgda_fig(l2_file):
     # # wgfspace.clean_random_track_motion()
     # # Cx = wgfspace.data[0]['xi2']
     # # Cy = wgfspace.data[0]['yi2']
-    # r = np.sqrt(Cx**2+Cy**2)
-    # rmask = r>=100
+    # 
     
     # tvec = wgfspace.tstamp[:-1]
     # hr_pre = []
@@ -895,3 +989,31 @@ def nfgda_fig(l2_file):
     # figst.savefig(os.path.join(savedir, 'far_com.png'),bbox_inches='tight')
     # plt.close(figst)
     # return wgfspace
+class C:
+    RED     = "\033[31m"
+    RED_B   = "\033[1;31m"
+    YELLOW  = "\033[33m"
+    YELLOW_B= "\033[1;33m"
+    RESET   = "\033[0m"
+
+def nfgda_forecast(l2_file_0,l2_file_1):
+    py_path = nf_path.get_nf_detection_name(l2_file_0, path_config)
+    data = np.load(py_path)
+    py_path = nf_path.get_nf_detection_name(l2_file_1, path_config)
+    data1 = np.load(py_path)
+    gps=[DataGFG(data,data['nfout']),DataGFG(data1,data1['nfout'])]
+    worker = Prediction_Worker(gps)
+    worker.update_velocitys(0)
+    tvec=[]
+    ele_map=[]
+    mean_map=[]
+    tvec = worker.gps[0].timestamp.astype('datetime64[10s]')\
+        +np.arange(10,7200,10)*np.timedelta64(1, 's')
+    for t in tvec:
+        dt = (t-worker.gps[0].timestamp)/np.timedelta64(60, 's')
+        end = worker.prediction(0, dt)
+        ele_map.append(end.anchors_to_arcs_map())
+        end = worker.prediction(0, dt,mode='mean')
+        mean_map.append(end.anchors_to_arcs_map())
+    data_dict = {"ele_map": ele_map, "mean_map": mean_map, "start_timestamps":tvec}
+    np.savez(nf_path.get_nf_forecast_name(l2_file_0, path_config), **data_dict)

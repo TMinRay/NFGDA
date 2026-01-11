@@ -18,6 +18,8 @@ if label_on:
     sitex, sitey = mk.geopoints_to_relative_xy(radar_loc,label_loc)
 
 Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
+r = np.sqrt(Cx**2+Cy**2)
+rmask = r>=100
 
 radar_id = 'KABX'
 V06_dir = '../V06/runtime/'+radar_id
@@ -25,7 +27,7 @@ os.makedirs(V06_dir,exist_ok=True)
 nf_dir = V06_dir+'/npz'
 os.makedirs(nf_dir,exist_ok=True)
 
-PARROT_mask_on = True
+PARROT_mask_on = False
 
 thrREF = -5
 thrdREF = 0.3
@@ -63,10 +65,10 @@ datasx = np.array([-4*np.ones((9)),4*np.ones((9))]).reshape(1,-1)
 datas = np.swapaxes(np.array([datasy,datasx]),0,2)
 
 class path_struct():
-    """docstring for ClassName"""
     def __init__(self):
         self.nf_dir = nf_dir
         self.V06_dir = V06_dir
         self.nf_preds_dir = export_preds_dir
+        self.nf_forecast_dir = export_forecast_dir
 
 path_config = path_struct()

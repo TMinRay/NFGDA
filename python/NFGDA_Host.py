@@ -6,8 +6,9 @@ import datetime
 import os
 import numpy as np
 import NF_Lib
-from NF_Lib import tprint
+from NF_Lib import tprint, C
 from NFGDA_load_config import *
+import traceback
 
 async def counter_loop(interval=120):
     """
@@ -20,56 +21,41 @@ async def counter_loop(interval=120):
         await asyncio.sleep(1)  # non-blocking sleep
     print()  # move to next line after finishing
 
-class NFGDADaemon:
-    states = ['idle', 'checking', 'detecting']
-    def __init__(self,host):
-        self.host = host
-        self.machine = AsyncMachine(model=self, states=self.states, initial='idle')
-        self.machine.add_transition('check', 'idle', 'checking', after='check_update')
-        self.machine.add_transition('detect', 'checking', 'detecting', after='handle_detect')
-        self.executor = ProcessPoolExecutor(max_workers=4)
-
-
-    async def run(self):
-        while True:
-            await self.check()
-            await counter_loop(120)
-
 class HostDaemon:
     states = ['idle', 'checking', 'downloading']
     def __init__(self,
-                dl_workers=2,
+                dl_workers=4,
                 nfgda_workers=4,
+                df_workers=4,
                 dl_qsize=20,
-                nfgda_qsize=20):
-        # self.machine = AsyncMachine(model=self, states=self.states, initial='idle')
-        # self.machine.add_transition('check', 'idle', 'checking', after='check_update')
-        # self.machine.add_transition('download', 'checking', 'downloading', after='handle_download')
-        # self.machine.add_transition('reset', '*', 'idle')
+                nfgda_qsize=20,
+                df_qsize = 20):
         self.running = True
         self.poll_seconds = 120
-        # self.executor = ProcessPoolExecutor(max_workers=2)
-        self.last_nexrad = datetime.datetime.now()-datetime.timedelta(minutes=30)
+        self.last_nexrad = datetime.datetime.now()-datetime.timedelta(minutes=90)
         self.path_config = path_config
 
         self.nexrad_buf_size = 20
         self.live_nexrad = np.full((self.nexrad_buf_size),'', dtype=object)
-        # self.nfgda_ready = np.full((20),False, dtype=bool)
         self.nfgda_ready = [asyncio.Event() for _ in range(self.nexrad_buf_size)]
+        self.df_ready = [asyncio.Event() for _ in range(self.nexrad_buf_size)]
         self.cur_nex_idx = 0
 
         # pipeline queues
-        self.download_q = asyncio.Queue(maxsize=dl_qsize)
-        self.nfgda_q    = asyncio.Queue(maxsize=nfgda_qsize)
-        self.result_q   = asyncio.Queue()
+        self.download_q   = asyncio.Queue(maxsize=dl_qsize)
+        self.nfgda_q      = asyncio.Queue(maxsize=nfgda_qsize)
+        self.d_forecast_q = asyncio.Queue(maxsize=df_qsize)
+        self.result_q     = asyncio.Queue()
 
         # executors
         self.dl_pool = ProcessPoolExecutor(max_workers=dl_workers)
         self.ng_pool = ProcessPoolExecutor(max_workers=nfgda_workers)
+        self.df_pool = ProcessPoolExecutor(max_workers=df_workers)
 
         # concurrency caps (usually match executor workers)
         self.dl_sem = asyncio.Semaphore(dl_workers)
         self.ng_sem = asyncio.Semaphore(nfgda_workers)
+        self.df_sem = asyncio.Semaphore(df_workers)
 
         # tasks list for shutdown
         self._tasks = []
@@ -84,7 +70,6 @@ class HostDaemon:
                 "[Host] aws_int TypeError: failed to retrieve NEXRAD scans "
                 "(possible radar outage, AWS latency, or invalid time window)."
             )
-            # await self.reset()
             return
         if len(scans)>0:
             self.last_nexrad = scans[-1].scan_time + datetime.timedelta(seconds=1)
@@ -96,40 +81,9 @@ class HostDaemon:
                     tprint(f"[Downloader] MDM! Skip: {vol.filename}")
                     continue
                 self.live_nexrad[self.cur_nex_idx] = vol.filename
+                tprint(f'download_q.put [{vol.filename}],[{self.cur_nex_idx}]')
                 await self.download_q.put((vol,self.cur_nex_idx))
                 self.cur_nex_idx = (self.cur_nex_idx + 1) % self.live_nexrad.size
-            # for nxd in scans:
-            #     print('  ',nxd.filename,nxd.scan_time)
-        #     await self.download()
-        #     return
-        # else:
-        #     await self.reset()
-        #     return
-
-                    #     self.cur_nfgda_idx = 0
-                    # async def check_update(self):
-                    #     tprint(f"[NFGDA] Checking readiness of nfgda_idx={self.cur_nfgda_idx}")
-                    #     if self.host.nfgda_ready[self.cur_nfgda_idx]:
-                    #         await self.detect()
-                    #     else:
-                    #         await self.reset()
-
-    # async def handle_download(self):
-    #     tprint("[Daemon] Submitting job to worker...")
-    #     loop = asyncio.get_running_loop()
-    #     # Submit heavy job to another process
-    #     # for vol in self.new_nex:
-    #     #     result = loop.run_in_executor(self.executor, self.get_nexrad, vol)
-    #     futures=[]
-    #     for vol in self.new_nex:
-    #         futures.append(loop.run_in_executor(self.executor, NF_Lib.get_nexrad, self.path_config, vol))
-    #     # Wait for completion; results will be [None, None, ...]
-    #     await asyncio.gather(*futures)
-    #     for vol in self.new_nex:
-    #         self.cur_nex_idx = (self.cur_nex_idx + 1) % self.live_nexrad.size
-    #         self.live_nexrad[self.cur_nex_idx] = vol.filename
-    #         self.nfgda_ready[self.cur_nex_idx].set()
-    #     await self.reset()
 
     async def download_worker(self):
         loop = asyncio.get_running_loop()
@@ -145,8 +99,14 @@ class HostDaemon:
                             vol
                         )
                     self.nfgda_ready[idx].set()
+                    tprint(f'nfgda_ready [{idx}] set')
                     if self.live_nexrad[(idx - 1) % self.live_nexrad.size] != '':
+                        tprint(f'self.live_nexrad[({idx} - 1)]:{self.live_nexrad[(idx - 1) % self.live_nexrad.size]} \
+                            nfgda_q.put [{idx}]')
                         await self.nfgda_q.put((idx))
+                except:
+                    traceback.print_exc()
+                    tprint(f'{C.RED_B}[Downloader] Fatal Error.{C.RESET}')
                 finally:
                     self.download_q.task_done()
         except asyncio.CancelledError:
@@ -158,8 +118,8 @@ class HostDaemon:
             while True:
                 idx = await self.nfgda_q.get()
                 pre_idx = (idx - 1) % self.live_nexrad.size
+                tprint(f'NFGDA [{idx}] wait nfgda_ready[{pre_idx}] ={self.nfgda_ready[pre_idx]}')
                 await self.nfgda_ready[pre_idx].wait()
-                tprint
                 try:
                     async with self.ng_sem:
                         await loop.run_in_executor(
@@ -168,58 +128,70 @@ class HostDaemon:
                             self.live_nexrad[pre_idx],
                             self.live_nexrad[idx]
                         )
+                    tprint(f'[NFGDA] self.nfgda_ready[{pre_idx}] clear')
                     self.nfgda_ready[pre_idx].clear()
+                    self.df_ready[idx].set()
+                    await self.d_forecast_q.put((idx))
+                except:
+                    traceback.print_exc()
+                    tprint(f'{C.RED_B}[NFGDA] Fatal Error.{C.RESET}')
                 finally:
                     self.nfgda_q.task_done()
         except asyncio.CancelledError:
             raise
 
-    # async def handle_detect(self):
-    #     tprint("[NFGDA] Submitting job to worker...")
-    #     if self.host.nfgda_ready[(self.cur_nfgda_idx-1)%self.host.nfgda_ready.size] != '':
-    #     loop = asyncio.get_running_loop()
-    #     futures=[]
-    #     while self.host.nfgda_ready[self.cur_nfgda_idx]:
-    #         futures.append(loop.run_in_executor(self.executor, \
-    #             NF_Lib.nfgda_unit_step, self.host.live_nexrad[(self.cur_nfgda_idx-1)%self.host.nfgda_ready.size], self.host.live_nexrad[self.cur_nfgda_idx],""))
-    #         self.host.nfgda_ready[self.cur_nfgda_idx] = False
-    #         self.cur_nfgda_idx = (self.cur_nfgda_idx+1)%self.host.nfgda_ready.size
-    #     await asyncio.gather(*futures)
-    #     await self.reset()
+    async def d_forecast_worker(self):
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                idx = await self.d_forecast_q.get()
+                next_idx = (idx + 1) % self.live_nexrad.size
+                tprint(f'FORECAST [{idx}] wait df_ready[{next_idx}]')
+                await self.df_ready[next_idx].wait()
+                try:
+                    async with self.ng_sem:
+                        await loop.run_in_executor(
+                            self.df_pool,
+                            NF_Lib.nfgda_forecast,
+                            self.live_nexrad[idx],
+                            self.live_nexrad[next_idx]
+                        )
+                    tprint(f'[FORECAST] self.df_ready[{idx}] clear')
+                    self.df_ready[idx].clear()
+
+                except:
+                    traceback.print_exc()
+                    tprint(f'{C.RED_B}[FORECAST] Fatal Error.{C.RESET}')
+                finally:
+                    self.d_forecast_q.task_done()
+        except asyncio.CancelledError:
+            raise
 
     async def run(self):
-
         self._tasks = [
             asyncio.create_task(self.download_worker(), name="download_worker"),
             asyncio.create_task(self.nfgda_worker(),   name="nfgda_worker"),
+            asyncio.create_task(self.d_forecast_worker(),   name="d_forecast_worker"),
             # asyncio.create_task(self.status_worker(),  name="status_worker"),
         ]
 
         try:
             while self.running:
-                await self.check_update()                 # assigns work
+                await self.check_update()
                 await counter_loop(self.poll_seconds)
         finally:
             await self.shutdown()
 
-        async def shutdown(self):
-            self.running = False
+    async def shutdown(self):
+        self.running = False
 
-            for t in self._tasks:
-                t.cancel()
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        for t in self._tasks:
+            t.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
 
-            self.dl_pool.shutdown(wait=False)
-            self.ng_pool.shutdown(wait=False)
-        # try:
-        #     while self.running:
-        #         await self.main_loop()
-        # finally:
-        #     await self.shutdown()
-
-        # while True:
-        #     await self.check()
-        #     await counter_loop(120)
+        self.dl_pool.shutdown(wait=False)
+        self.ng_pool.shutdown(wait=False)
+        self.df_pool.shutdown(wait=False)
 
 if __name__ == "__main__":
     daemon_host = HostDaemon()
