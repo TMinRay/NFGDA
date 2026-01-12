@@ -2,7 +2,12 @@ import configparser
 import math_kit as mk
 import numpy as np
 import os
+import datetime
 from scipy.interpolate import LinearNDInterpolator
+import colorlevel as cl
+VM=cl.VarMap()
+varname_table=VM.varname_table
+varunit_table=VM.varunit_table
 
 config = configparser.ConfigParser()
 config.read("NFGDA.ini")
@@ -37,9 +42,8 @@ RegR = np.arange(0,400)/4
 RegAZ = np.arange(0,360,0.5)*np.pi/180
 RegPolarX = RegR[:,np.newaxis] * np.sin(RegAZ[np.newaxis,:])
 RegPolarY = RegR[:,np.newaxis] * np.cos(RegAZ[np.newaxis,:])
-interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), np.zeros(RegPolarX.shape).reshape(-1))
 
-###### Beta Cell magic numbers ##########
+###### Beta Cell magic numbers ######
 cellthresh = 5
 cbcellthrsh = 0.8
 cellcsrthresh=0.5
@@ -55,9 +59,9 @@ s2g = s2ydel/s2xdel
 s2gc = s2ynum[1]-s2g*s2xnum[1]
 Celldp = np.load("Celldp.npy")
 Celldpw = np.load("Celldpw.npy")
-###### Beta Cell magic numbers ##########
+###### Beta Cell magic numbers ######
 
-######### FTC Beta Z, dZ displacements ###########
+###### FTC Beta Z, dZ displacements ######
 datacy = np.arange(-8,9).reshape(1,-1)
 datacx = np.zeros((1,17))
 datac = np.swapaxes(np.array([datacy,datacx]),0,2)
@@ -65,6 +69,7 @@ datac = np.swapaxes(np.array([datacy,datacx]),0,2)
 datasy = np.array([*np.arange(-7,0,2),0,*np.arange(1,8,2),*np.arange(-7,0,2),0,*np.arange(1,8,2)]).reshape(1,-1)
 datasx = np.array([-4*np.ones((9)),4*np.ones((9))]).reshape(1,-1)
 datas = np.swapaxes(np.array([datasy,datasx]),0,2)
+###### FTC Beta Z, dZ displacements ######
 
 class path_struct():
     def __init__(self):
@@ -74,3 +79,35 @@ class path_struct():
         self.nf_forecast_dir = export_forecast_dir
 
 path_config = path_struct()
+
+###### Utilities ######
+def tprint(*args, **kwargs):
+    print(f"[{datetime.datetime.now():%H:%M:%S}]", *args, **kwargs)
+
+class C:
+    RESET   = "\033[0m"
+    # Standard colors
+    BLACK   = "\033[30m"
+    RED     = "\033[31m"
+    GREEN   = "\033[32m"
+    YELLOW  = "\033[33m"
+    BLUE    = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN    = "\033[36m"
+    WHITE   = "\033[37m"
+
+    # Bright (bold) colors
+    BLACK_B   = "\033[1;30m"
+    RED_B     = "\033[1;31m"
+    GREEN_B   = "\033[1;32m"
+    YELLOW_B  = "\033[1;33m"
+    BLUE_B    = "\033[1;34m"
+    MAGENTA_B = "\033[1;35m"
+    CYAN_B    = "\033[1;36m"
+    WHITE_B   = "\033[1;37m"
+###### Utilities ######
+dl_tag = f"{C.CYAN}[Downloader]{C.RESET} "
+cv_tag = f"{C.BLUE}[Converter]{C.RESET} "
+ng_tag = f"{C.GREEN}[NFGDA]{C.RESET} "
+df_tag = f"{C.YELLOW}[FORECAST]{C.RESET} "
+ht_tag = f"{C.MAGENTA}[Host]{C.RESET} "

@@ -30,7 +30,7 @@ class HostDaemon:
                 nfgda_qsize=20,
                 df_qsize = 20):
         self.running = True
-        self.poll_seconds = 120
+        self.pull_seconds = 120
         self.last_nexrad = datetime.datetime.now()-datetime.timedelta(minutes=90)
         self.path_config = path_config
 
@@ -60,24 +60,27 @@ class HostDaemon:
         self._tasks = []
 
     async def check_update(self):
-        tprint(f"[Host] Checking for [{radar_id}] updates... last =",self.last_nexrad - datetime.timedelta(seconds=1))
+        tprint(ht_tag+f"Checking for [{radar_id}] updates... latest nexrad =",self.last_nexrad - datetime.timedelta(seconds=1))
         try:
             scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad, datetime.datetime.now(), radar_id)
             # scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad - datetime.timedelta(days=1), datetime.datetime.now()- datetime.timedelta(days=1), radar_id)
         except TypeError:
             tprint(
-                "[Host] aws_int TypeError: failed to retrieve NEXRAD scans "
-                "(possible radar outage, AWS latency, or invalid time window)."
+                ht_tag +
+                f"aws_int TypeError: failed to retrieve NEXRAD scans "
+                f"(possible radar outage, AWS latency, or invalid time window).{C.RESET}"
             )
             return
         if len(scans)>0:
             self.last_nexrad = scans[-1].scan_time + datetime.timedelta(seconds=1)
-            print(f"Find {len(scans)} volumes")
+            tprint(dl_tag+
+                f"Find {len(scans)} volumes.")
             self.new_nex = scans
 
             for vol in scans:
                 if vol.filename[-4:]=='_MDM':
-                    tprint(f"[Downloader] MDM! Skip: {vol.filename}")
+                    tprint(dl_tag+
+                        f"MDM! Skip: {vol.filename}")
                     continue
                 self.live_nexrad[self.cur_nex_idx] = vol.filename
                 await self.download_q.put((vol,self.cur_nex_idx))
@@ -97,14 +100,16 @@ class HostDaemon:
                             vol
                         )
                     self.nfgda_ready[idx].set()
-                    tprint(f'[Downloader] nfgda_ready [{idx}] set')
+                    tprint(dl_tag+
+                        f'nfgda_ready [{idx}] set')
                     if self.live_nexrad[(idx - 1) % self.live_nexrad.size] != '':
                         # tprint(f'self.live_nexrad[({idx} - 1)]:{self.live_nexrad[(idx - 1) % self.live_nexrad.size]} \
                         #     nfgda_q.put [{idx}]')
                         await self.nfgda_q.put((idx))
                 except:
                     traceback.print_exc()
-                    tprint(f'{C.RED_B}[Downloader] Fatal Error.{C.RESET}')
+                    tprint(dl_tag+
+                        f'{C.RED_B}Fatal Error.{C.RESET}')
                 finally:
                     self.download_q.task_done()
         except asyncio.CancelledError:
@@ -116,7 +121,7 @@ class HostDaemon:
             while True:
                 idx = await self.nfgda_q.get()
                 pre_idx = (idx - 1) % self.live_nexrad.size
-                tprint(f'[NFGDA] {self.live_nexrad[idx].strip()} [{idx}] wait nfgda_ready[{pre_idx}] ={self.nfgda_ready[pre_idx]}')
+                tprint(ng_tag+f'{self.live_nexrad[idx].strip()} [{idx}] wait nfgda_ready[{pre_idx}]')
                 await self.nfgda_ready[pre_idx].wait()
                 try:
                     async with self.ng_sem:
@@ -126,13 +131,13 @@ class HostDaemon:
                             self.live_nexrad[pre_idx],
                             self.live_nexrad[idx]
                         )
-                    tprint(f'[NFGDA] {self.live_nexrad[idx].strip()}[{idx}] nfgda_ready[{pre_idx}] clear; df_ready[{idx}] set')
+                    tprint(ng_tag+f'{self.live_nexrad[idx].strip()}[{idx}] nfgda_ready[{pre_idx}] clear; df_ready[{idx}] set')
                     self.nfgda_ready[pre_idx].clear()
                     self.df_ready[idx].set()
                     await self.d_forecast_q.put((idx))
                 except:
                     traceback.print_exc()
-                    tprint(f'{C.RED_B}[NFGDA] Fatal Error.{C.RESET}')
+                    tprint(ng_tag+f'{C.RED_B}Fatal Error.{C.RESET}')
                 finally:
                     self.nfgda_q.task_done()
         except asyncio.CancelledError:
@@ -144,7 +149,7 @@ class HostDaemon:
             while True:
                 idx = await self.d_forecast_q.get()
                 next_idx = (idx + 1) % self.live_nexrad.size
-                tprint(f'[FORECAST] {self.live_nexrad[idx].strip()}[{idx}] wait df_ready[{next_idx}]')
+                tprint(df_tag+f'{self.live_nexrad[idx].strip()}[{idx}] wait df_ready[{next_idx}]')
                 await self.df_ready[next_idx].wait()
                 try:
                     async with self.ng_sem:
@@ -154,12 +159,14 @@ class HostDaemon:
                             self.live_nexrad[idx],
                             self.live_nexrad[next_idx]
                         )
-                    tprint(f'[FORECAST] df_ready[{idx}] clear')
+                    tprint(df_tag+
+                        f'df_ready[{idx}] clear.')
                     self.df_ready[idx].clear()
 
                 except:
                     traceback.print_exc()
-                    tprint(f'{C.RED_B}[FORECAST] Fatal Error.{C.RESET}')
+                    tprint(df_tag+
+                        f'{C.RED_B}Fatal Error.{C.RESET}')
                 finally:
                     self.d_forecast_q.task_done()
         except asyncio.CancelledError:
@@ -175,7 +182,7 @@ class HostDaemon:
         try:
             while self.running:
                 await self.check_update()
-                await counter_loop(self.poll_seconds)
+                await counter_loop(self.pull_seconds)
         finally:
             await self.shutdown()
 

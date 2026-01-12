@@ -1,32 +1,26 @@
-import numpy as np
+# import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 import scipy.io
 from scipy.signal import medfilt2d
 from scipy.spatial.distance import pdist, squareform
+from scipy.ndimage import convolve
 # from scipy.ndimage import gaussian_filter
 from skimage.morphology import skeletonize, disk, binary_dilation, remove_small_objects
 from skimage.measure import label
 import matplotlib.pyplot as plt
 import sys
-import os
-import datetime
-from NFGDA_load_config import *
+# import os
+# import datetime
 import pyart
 from pathlib import Path
 import nf_path
-from scipy.ndimage import convolve
-kernel = np.ones((3,3), dtype=int)
-
-import colorlevel as cl
-VM=cl.VarMap()
-varname_table=VM.varname_table
-varunit_table=VM.varunit_table
+from NFGDA_load_config import *
 
 import nexradaws
 aws_int = nexradaws.NexradAwsInterface()
+interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), np.zeros(RegPolarX.shape).reshape(-1))
 
-def tprint(*args, **kwargs):
-    print(f"[{datetime.datetime.now():%H:%M:%S}]", *args, **kwargs)
+kernel = np.ones((3,3), dtype=int)
 
 def rot_displace(dp,origindeg):
     dpvector = np.swapaxes(dp,1,2)
@@ -113,17 +107,17 @@ def gen_beta(a2,a2_thr,ftcs):
 def gaussmf(x, sigma, c):
     return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
 
-def clean_indices(idx,shp,edg):
-    dim0 = idx[:,0]
-    dim1 = idx[:,1]
-    inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
-    return idx[inbox,:]
-
 def probor(ar):
     buf = np.zeros(ar.shape[:-1])
     for iv in range(ar.shape[-1]):
         buf = buf + ar[...,iv] - buf * ar[...,iv]
     return buf
+
+def clean_indices(idx,shp,edg):
+    dim0 = idx[:,0]
+    dim1 = idx[:,1]
+    inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
+    return idx[inbox,:]
 
 def post_moving_avg(a2):
     center_indices = np.argwhere(a2>0)
@@ -174,18 +168,14 @@ fuzzGST = NFModule('NF00ref_YHWANG_fis4python.mat')
 
 def nfgda_unit_step(l2_file_0,l2_file_1,process_tag=''):
     ifn = l2_file_1
-    tprint(f'[NFGDA] {l2_file_0} - {l2_file_1}')
-    # exp_preds_event = export_preds_dir + process_tag
-    # os.makedirs(exp_preds_event,exist_ok=True)
+    tprint(ng_tag+f'{l2_file_0} -> {l2_file_1}')
 
-    # buf = np.load(l2_file_0)
     buf = np.load(nf_path.get_nf_input_name(l2_file_0,path_config))
     PARROT0 = buf['PARROT']
     if PARROT_mask_on:
         PARROT0[buf['mask']] = np.nan
     PARROT0 = np.asfortranarray(PARROT0)
 
-    # PARROT_buf = np.load(l2_file_1)
     PARROT_buf = np.load(nf_path.get_nf_input_name(l2_file_1,path_config))
     PARROT = PARROT_buf['PARROT']
     if PARROT_mask_on:
@@ -312,7 +302,7 @@ def nfgda_unit_step(l2_file_0,l2_file_1,process_tag=''):
             handpick = scipy.io.loadmat(mhandpick)
             evalbox = handpick['evalbox']
         except:
-            print(f'Warning: No {mhandpick} filling zeros.')
+            tprint(ng_tag+f'Warning: No {mhandpick} filling zeros.')
             evalbox = np.zeros(Cx.shape)
         interpolator.values = diffz.reshape(-1,1)
         diffz = interpolator(Cx, Cy)
@@ -321,7 +311,6 @@ def nfgda_unit_step(l2_file_0,l2_file_1,process_tag=''):
             'outputGST':outputGST})
 
     # scipy.io.savemat(matout, data_dict)
-    # np.savez(matout[:-3]+'npz', **data_dict)
     np.savez(nf_path.get_nf_detection_name(ifn,path_config), **data_dict)
     nfgda_fig(ifn)
 
@@ -334,10 +323,10 @@ def get_nexrad(path_config,buf):
     l2_file = buf.filename
     if not os.path.exists(os.path.join(path_config.V06_dir,l2_file)):
         aws_int.download(buf, path_config.V06_dir)
-        tprint(f"[Downloader] Got Volume: {l2_file}")
+        tprint(dl_tag+f"Got Volume: {l2_file}")
         convert_v06_to_nf_input(l2_file,path_config)
     else:
-        tprint(f"[Downloader] Already downloaded. Skip: {l2_file}")
+        tprint(dl_tag+f"Already downloaded. Skip: {l2_file}")
     return
 
 def ReadRadarSliceUpdate(radar, slice_idx):
@@ -375,20 +364,12 @@ def ReadRadarSliceUpdate(radar, slice_idx):
 
 def convert_v06_to_nf_input(l2_file, path_config,debug=False):
     v06_file = os.path.join(path_config.V06_dir,l2_file)
-    # l2_file = os.path.basename(v06_file)
     if not (l2_file.endswith('_V06') or l2_file.startswith('._')):
-        print("[Converter] Skip: ", l2_file)
+        tprint(cv_tag+"Skip: ", l2_file)
         return
 
-    print("[Converter] Processing ", l2_file)
+    tprint(cv_tag+"Processing ", l2_file)
 
-    # # Output path.
-    # if not os.path.isdir(path_config.nf_dir):
-    #     os.makedirs(path_config.nf_dir,exist_ok=True)
-
-    # nf_input_file = l2_file.split('.')[0]+'.npz'
-
-    # py_path = os.path.join(nf_dir, nf_input_file)
     py_path = nf_path.get_nf_input_name(l2_file, path_config)
     # read l2 data
     radar_obj = pyart.io.read_nexrad_archive(v06_file)
@@ -396,7 +377,8 @@ def convert_v06_to_nf_input(l2_file, path_config,debug=False):
     # TODO(pjatau) erase below.
     nsweeps = radar_obj.nsweeps
     vcp = radar_obj.metadata['vcp_pattern']
-    print("[Converter] VCP: ", vcp)
+
+    debug and tprint(cv_tag+"VCP: ", vcp)
 
     # VCP 212.
     # slices 0-2-4 contain only dual-pol. super res.
@@ -404,14 +386,13 @@ def convert_v06_to_nf_input(l2_file, path_config,debug=False):
     # slices >= 6 contain all products. normal res.
 
     # Initialize data cube
-    # PARROT = np.ma.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)
     PARROT = np.ma.array(np.ma.array(np.full((END_GATE, NUM_AZ, 6), np.nan, dtype=np.float64)), mask=np.full((END_GATE, NUM_AZ, 6), True))
     in_parrot = np.full(6,False)
 
     for slice_idx in range(nsweeps):
         radar_range, az_sweep_deg, radar_el, data_slice, mask_slice, labels_slice, data_mask_slice = ReadRadarSliceUpdate(
             radar_obj, slice_idx)
-        debug and print("Processing elevation {} degrees".format(np.nanmedian(radar_el)))
+        debug and tprint(cv_tag + "Processing elevation {} degrees".format(np.nanmedian(radar_el)))
         scan_el = np.nanmedian(radar_el)
         # if abs(scan_el-target_el)>0.3:
         #     continue
@@ -429,7 +410,7 @@ def convert_v06_to_nf_input(l2_file, path_config,debug=False):
                 continue
             in_parrot[i_parrot] = True
 
-            debug and print("Processing {}. parrot idx {}".format(var, i_parrot))
+            debug and tprint(cv_tag + "Processing {}. parrot idx {}".format(var, i_parrot))
 
             curr_data = data_slice[i_var][:, :END_GATE]
             curr_mask = data_mask_slice[i_var][:, :END_GATE]
@@ -439,10 +420,8 @@ def convert_v06_to_nf_input(l2_file, path_config,debug=False):
             PARROT[:, :, i_parrot].mask = curr_mask.T
         if np.min(in_parrot):
             timestamp=np.datetime64(pyart.graph.common.generate_radar_time_sweep(radar_obj,slice_idx))
-            debug and print("slice idx {} timestamp".format(slice_idx),timestamp)
+            debug and tprint(cv_tag+"slice idx {} timestamp".format(slice_idx),timestamp)
             break
-        print()
-    print()
     # scipy.io.savemat(output_path, {"PARROT": PARROT})
     np.savez(py_path, PARROT=PARROT.data,mask=PARROT.mask,timestamp=timestamp)
 
@@ -564,14 +543,10 @@ class Prediction_Worker:
             for ig in range(len(self.gps)-1):
                 A = self.gps[ig]
                 B = self.gps[ig+1]
-                # endidx, flip, dist = self.GFG_motion(A.arc_anchors,B.arc_anchors)
-                # self.connects[ig] = Prediction_Connection(endidx, flip, A, B, ig)
                 self.GFG_motion(A,B,ig)
         else:
             A = self.gps[k]
             B = self.gps[k+1]
-            # endidx, flip, dist = self.GFG_motion(A.arc_anchors,B.arc_anchors)
-            # self.connects[k] = Prediction_Connection(endidx, flip, A, B)
             self.GFG_motion(A,B,k)
     def GFG_motion(self,sgfg,egfg,conn):
         A = sgfg.arc_anchors
@@ -634,6 +609,7 @@ def log_stat(fn, stats_list):
     np.savez(fn, **save_dict)
     return save_dict
 
+###### Polyfit Arc Functions ##########
 def rotation_matrix_2d(theta):
     """
     Returns a 2×2 rotation matrix for rotating points counterclockwise by angle theta (in radians).
@@ -653,7 +629,6 @@ def find_roation_coord(points):
     return angle, points[:,i]
 
 def rotation_polyfit(points,n,fitn=None):
-    # print(points.shape)
     if points.shape[1]>2:
         ang, origin = find_roation_coord(points)
         rot_points = np.matmul(rotation_matrix_2d(-ang),points-origin[:,np.newaxis])
@@ -694,12 +669,7 @@ def nf_arc(xx,yy,bw):
         return points_to_binary_grid(fit_points,xx.shape,ogn,0.5)
     else:
         return np.zeros(xx.shape,dtype=bool)
-
-# def clean_indices(idx,shp,edg):
-#     dim0 = idx[:,0]
-#     dim1 = idx[:,1]
-#     inbox = (dim0>=edg) & (dim0< shp[0]-edg) & (dim1>=edg) & (dim1< shp[1]-edg)
-#     return idx[inbox,:]
+###### Polyfit Arc Functions ##########
 
 # def post_proc(inGST):
 #     hGST = medfilt2d(inGST.astype(float), kernel_size=3)
@@ -796,18 +766,14 @@ def nfgda_fig(l2_file):
     data = np.load(py_path)
     gps = DataGFG(data,data['nfout'])
     fig, axs = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
-    # figpmap, axspmap = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
     pdata = np.ma.masked_where(rmask,data['inputNF'][:,:,1])
     pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
-    # print(np.sum(data['nfout']),gps.arc_anchors)
+
     # if np.sum(data['nfout'])>0:
     if gps.arc_anchors.ndim==3:
         axs.plot(gps.arc_anchors[:,0,:].T,gps.arc_anchors[:,1,:].T,alpha=0.7,color='k')
 
     valid_time = gps.timestamp
-
-    # for fg in [fig,figpmap]:
-    #             fig.subplots_adjust(left=0.125, right=0.985, bottom=0.08, top=0.95)
     fig.suptitle(valid_time.astype(datetime.datetime).item().strftime('%Y/%m/%d %H:%M:%S'),y=0.95)
     axs.set_xlim(-100,100)
     axs.set_ylim(-100,100)
@@ -816,13 +782,6 @@ def nfgda_fig(l2_file):
     axs.set_aspect('equal')
     fig.savefig(py_path[:-3]+'png')
     plt.close(fig)
-
-class C:
-    RED     = "\033[31m"
-    RED_B   = "\033[1;31m"
-    YELLOW  = "\033[33m"
-    YELLOW_B= "\033[1;33m"
-    RESET   = "\033[0m"
 
 def nfgda_forecast(l2_file_0,l2_file_1,debug=False):
     py_path = nf_path.get_nf_detection_name(l2_file_0, path_config)
@@ -852,7 +811,7 @@ def nfgda_forecast(l2_file_0,l2_file_1,debug=False):
             end = worker.prediction(0, dt,mode='mean')
             axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,alpha=0.7,color='r')
         else:
-            debug and print(f'{C.RED_B}[FORECAST] prediction dimension != 3 {C.RESET}',worker.connects[0].motions)
+            debug and tprint(df_tag+f'{C.RED_B} Prediction dimension != 3 {C.RESET}',worker.connects[0].motions)
         fig.savefig(nf_path.get_nf_forecast_name(l2_file_0, path_config,t))
         for ln in axs.lines[:]:
             ln.remove()
