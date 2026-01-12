@@ -1,13 +1,16 @@
 import os
+import datetime
 
 def get_nf_input_name(l2_file, path_config):
-    nf_input_file = l2_file.split('.')[0]+'.npz'
-    return os.path.join(path_config.nf_dir, nf_input_file)
+    fn = l2_file.split('.')[0]+'.npz'
+    return os.path.join(path_config.nf_dir, fn)
 
 def get_nf_detection_name(l2_file, path_config):
-    npzout = 'nf_pred'+l2_file+'.npz'
-    return os.path.join(path_config.nf_preds_dir, npzout)
+    fn = 'nf_pred'+l2_file+'.npz'
+    return os.path.join(path_config.nf_preds_dir, fn)
 
-def get_nf_forecast_name(l2_file, path_config):
-    npzout = 'nf_forecast'+l2_file+'.npz'
-    return os.path.join(path_config.nf_forecast_dir, npzout)
+def get_nf_forecast_name(l2_file, path_config, valid_time):
+    savedir = os.path.join(path_config.nf_forecast_dir, 'forecast-'+l2_file)
+    os.makedirs(savedir,exist_ok=True)
+    fn = f'NFGDA-forecast-{l2_file[:4]}'+valid_time.astype(datetime.datetime).strftime('%Y%m%d_%H%M%S')+'.png'
+    return os.path.join(savedir, fn)

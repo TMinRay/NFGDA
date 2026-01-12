@@ -1,5 +1,3 @@
-# import time
-# tic = time.time()
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 import scipy.io
@@ -19,7 +17,7 @@ import nf_path
 from scipy.ndimage import convolve
 kernel = np.ones((3,3), dtype=int)
 
-import tminlib.colorlevel as cl
+import colorlevel as cl
 VM=cl.VarMap()
 varname_table=VM.varname_table
 varunit_table=VM.varunit_table
@@ -374,14 +372,6 @@ def ReadRadarSliceUpdate(radar, slice_idx):
             var_mask_slice.append(placeholder_mask)
 
     return radar_range, radar_az_deg, radar_el, data_slice.copy(), mask_slice.copy(), labels_slice, var_mask_slice
-
-# def get_nf_input_name(l2_file, path_config):
-#     nf_input_file = l2_file.split('.')[0]+'.npz'
-#     return os.path.join(path_config.nf_dir, nf_input_file)
-
-# def get_nf_detection_name(l2_file, path_config):
-#     matout = 'nf_pred'+l2_file+'.npz'
-#     return os.path.join(path_config.nf_preds_dir, matout)
 
 def convert_v06_to_nf_input(l2_file, path_config,debug=False):
     v06_file = os.path.join(path_config.V06_dir,l2_file)
@@ -810,45 +800,10 @@ def nfgda_fig(l2_file):
     pdata = np.ma.masked_where(rmask,data['inputNF'][:,:,1])
     pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
     # print(np.sum(data['nfout']),gps.arc_anchors)
-    if np.sum(data['nfout'])>0:
+    # if np.sum(data['nfout'])>0:
+    if gps.arc_anchors.ndim==3:
         axs.plot(gps.arc_anchors[:,0,:].T,gps.arc_anchors[:,1,:].T,alpha=0.7,color='k')
 
-    # axs.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
-    # for iframe in range(pframe-max_predict,pframe):
-    #     if iframe<0:
-    #         continue
-    #     print(f'[{iframe}] -> [{pframe}]')
-    #     dt = (worker.gps[pframe].timestamp-worker.gps[iframe].timestamp)/np.timedelta64(60, 's')
-    #     if worker.connects[iframe].igp_anchor.ndim>1:
-    #         ele_w = exp_weight(dt,ele_t_const)
-    #         mean_w = exp_weight(dt,mean_t_const)
-    #         # ele_w = 1
-    #         # mean_w = 1
-    #         ps += ele_w + mean_w
-    #         end = worker.prediction(iframe, dt)
-    #         axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=((0.5+0.5*(pframe-iframe)/max_predict),0,0),label='point',alpha=0.5)
-    #         pgf += ele_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
-
-    #         end = worker.prediction(iframe, dt,mode='mean')
-    #         axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=(0,0,(0.5+0.5*(pframe-iframe)/max_predict)),label='mean',alpha=0.5)
-    #         pgf += mean_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
-    # pgf=pgf/ps*1e2
-
-
-    # pcm=axspmap.pcolormesh(Cx,Cy,pgf,vmin=0,vmax=80,cmap='jet')
-    # axspmap.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
-
-    # cbar=plt.colorbar(pcm,ax=axspmap, pad=0.07)
-    # cbar.set_label('Gust Front Proxy', fontsize=10, labelpad=2, rotation=90)
-    # cbar.ax.yaxis.set_label_position('left')
-    # cbar=plt.colorbar(pcz,ax=axs, pad=0.07)
-    # cbar.set_label('Reflectivity (dBZ)', fontsize=10, labelpad=2, rotation=90)
-    # cbar.ax.yaxis.set_label_position('left')
-
-    # handles, labels = axs.get_legend_handles_labels()
-    # by_label = dict(zip(labels, handles))
-    # axs.legend(by_label.values(), by_label.keys(),loc='upper left', fontsize='small')
-    # axspmap.set_title(gps[iframe].timestamp)
     valid_time = gps.timestamp
 
     # for fg in [fig,figpmap]:
@@ -862,133 +817,6 @@ def nfgda_fig(l2_file):
     fig.savefig(py_path[:-3]+'png')
     plt.close(fig)
 
-    # exp_preds_event = export_preds_dir + case_name
-    # savedir = os.path.join(fig_dir, case_name)
-    # os.makedirs(savedir,exist_ok=True)
-
-    # export_preds_fapos_event = export_preds_fapos_dir + case_name
-    # os.makedirs(export_preds_fapos_event,exist_ok=True)
-
-    # npz_list = glob.glob(exp_preds_event + "/*npz")
-    # wgfspace = GFSpace([18,72])
-    # for ppi_file in npz_list:
-    #     wgfspace.load_nf(ppi_file)
-    # # wgfspace.clean_short_track()
-    # # wgfspace.clean_random_track_motion()
-    # # Cx = wgfspace.data[0]['xi2']
-    # # Cy = wgfspace.data[0]['yi2']
-    # 
-    
-    # tvec = wgfspace.tstamp[:-1]
-    # hr_pre = []
-    # hr_pos = []
-    # fa_pre = []
-    # fa_pos = []
-    # stat_pre = []
-    # stat_pos = []
-    # for ic,data in enumerate(wgfspace.data[:-1]):
-    #     if evalbox_on:
-    #         evalbox = data['evalbox']
-    #     else:
-    #         evalbox = np.zeros(Cx.shape)
-    #     evalline = skeletonize(evalbox)
-    #     # gcoord = {'Cx':data['xi2'],'Cy':data['yi2']}
-    #     gcoord = {'Cx':Cx,'Cy':Cy}
-    #     (hr,fa), eval_pre = eval_nf(data['nfout'],evalline,evalbox,gcoord)
-    #     hr_pre.append(hr)
-    #     fa_pre.append(fa)
-    #     stat_pre.append(eval_pre)
-
-    #     proc_nf = wgfspace.get_cln_nf(ic)
-    #     matout = export_preds_fapos_event + '/' + npz_list[ic].split('/')[-1]
-    #     # data_dict = {"xi2":Cx,"yi2":Cy,"REF":data['REF'], \
-    #     #             "nfout": proc_nf,"inputNF":data['inputNF'],
-    #     #             "evalbox":evalbox}
-    #     #             # ,'outputGST':data['outputGST']}
-    #     # scipy.io.savemat(matout, data_dict)
-
-    #     (hr,fa), eval_pos = eval_nf(proc_nf,evalline,evalbox,gcoord)
-    #     hr_pos.append(hr)
-    #     fa_pos.append(fa)
-    #     stat_pos.append(eval_pos)
-
-    #     ppi_file = npz_list[ic]
-    #     print(ppi_file)
-    #     ppi_id = os.path.basename(ppi_file)
-    #     ppi_name = ppi_id[11:]  # MATLAB 12:end is Python 11: (0-based)
-    #     date_part = ppi_name[4:12]   # 5:12 in MATLAB → 4:12 in Python
-    #     time_part = ppi_name[13:19]
-    
-    #     radar_id = ppi_name[0:4]  # 1:4 in MATLAB → 0:4 in Python
-    #     tstamp_date = datetime.strptime(date_part, "%Y%m%d")
-    #     tstamp_time = datetime.strptime(time_part, "%H%M%S").time()
-    #     tstamp = datetime.combine(tstamp_date.date(), tstamp_time)
-    #     ppi_desc = f"{radar_id}, {tstamp.strftime('%m/%d/%Y, %H:%M:%S %Z')}"
-    
-    
-    #     fig, axs = plt.subplots(1, 2, figsize=(7/0.7, 2.5/0.7),dpi=250, gridspec_kw=dict(left=0.08, right=1-0.085, top=1-0.08, bottom=0.06, wspace=0.25, hspace=0.16))
-    #     REF = data['inputNF'][:,:,1]
-    #     pdata = np.ma.masked_where(rmask,REF)
-
-    #     def plot_nf(ax,nfout,hrt,fat,evalmasks):
-    #         # evalbox = data['evalbox']
-    #         nfloc = np.logical_and(~rmask,nfout)
-    #         # nfpredict = dilation(nfloc, disk(5))
-    #         # Mhits = np.logical_and(evalline,nfpredict)
-    #         # Mmiss = np.logical_and(evalline,~nfpredict)
-    #         ax.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
-
-    #         ax.plot(Cx[nfloc],Cy[nfloc],'k.',markersize=0.8)
-    #         ax.plot(Cx[np.logical_and(nfloc,evalbox)],Cy[np.logical_and(nfloc,evalbox)],'r.',markersize=0.8)
-    #         ax.plot(Cx[evalmasks[3]],Cy[evalmasks[3]],'.',color=(1,0.5,0),markersize=0.8)
-    #         ax.plot(Cx[evalmasks[2]],Cy[evalmasks[2]],'.',color=(1,0,1),markersize=0.8)
-    #         ax.plot(Cx[evalmasks[1]],Cy[evalmasks[1]],'b.',markersize=0.8)
-    #         ax.plot(Cx[evalmasks[0]],Cy[evalmasks[0]],'.',color=(0,1,0),markersize=0.8)
-    #         ax.contour(Cx,Cy,evalbox,[0.5], colors='y',linewidths=0.8)
-    #         ax.text(0.025, 0.975,  f'PLD = {hrt:.2f}%\nPFD = {fat:.2f}%', 
-    #                  transform=ax.transAxes, verticalalignment='top', fontsize=7)
-    #         # ax.text(0.025, 0.975,  f'PLD = {hrt:.2f}%\nPFD = {fat:.2f}%', 
-    #         #          transform=ax.transAxes, verticalalignment='top', fontsize=7)
-    #         ax.set_title(ppi_desc)
-    #         ax.axis('equal')
-    #         phelp.add_cbar(ax.collections[0],fig,ax,unit_text = varunit_table['Zh'],size='3%')
-    #     plot_nf(axs[0],data['nfout'],hr_pre[-1],fa_pre[-1],eval_pre)
-    #     plot_nf(axs[1],proc_nf,hr_pos[-1],fa_pos[-1],eval_pos)
-    #     if label_on:
-    #         axs[0].plot(sitex/1e3, sitey/1e3, 'r*', markersize=8)
-    #         axs[1].plot(sitex/1e3, sitey/1e3, 'r*', markersize=8)
-    #     fig.savefig(os.path.join(savedir, ppi_id[:-4]+'.png'))
-    #     plt.close(fig)
-
-    # summ_pre = log_stat(os.path.join(savedir, 'stat_pre.npz'),stat_pre)
-    # summ_pos = log_stat(os.path.join(savedir, 'stat_pos.npz'),stat_pos)
-    # PLD = 1e2*np.sum(summ_pre['hits'])/(np.sum(summ_pre['hits'])+np.sum(summ_pre['miss']))
-    # PFD = 1e2*np.sum(summ_pre['fa'])/(np.sum(summ_pre['q_arc']))
-    # PLDp = 1e2*np.sum(summ_pos['hits'])/(np.sum(summ_pos['hits'])+np.sum(summ_pos['miss']))
-    # PFDp = 1e2*np.sum(summ_pos['fa'])/(np.sum(summ_pos['q_arc']))
-
-    # figst, axs = plt.subplots(1, 1, figsize=(4/0.65, 3/0.65),dpi=250, gridspec_kw=dict(left=0.08, right=1-0.085, top=1-0.08, bottom=0.06, wspace=0.25, hspace=0.16))
-
-    # axs.plot(tvec,hr_pre,'b-',label=f'PLD : {PLD:.1f}%')
-    # axs.plot(tvec,np.array(fa_pre),'r-',label=f'PFD : {PFD:.1f}%')
-    # axs.plot(tvec,hr_pos, 'b--',label=f'PLD* : {PLDp:.1f}%')
-    # axs.plot(tvec,np.array(fa_pos), 'r--',label=f'PFD* : {PFDp:.1f}%')
-    # axs.set_ylim(0,100.5)
-    # axs.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
-    # figst.autofmt_xdate()
-    # axs.set_title(case_name,loc='left')
-    # # plt.xlabel('Time (Frame)')
-    # axs.set_ylabel('Percentage (%)')
-    # axs.grid()
-    # # lines = plt.gca().get_lines()
-    # plt.legend(ncol=2,loc='lower right',
-    # bbox_to_anchor=(1, 1.02),  # (x=1 means right end of axes, y=just above)
-    # borderaxespad=0,
-    # frameon=True)
-    # # figst.tight_layout()
-    # figst.savefig(os.path.join(savedir, 'far_com.png'),bbox_inches='tight')
-    # plt.close(figst)
-    # return wgfspace
 class C:
     RED     = "\033[31m"
     RED_B   = "\033[1;31m"
@@ -996,7 +824,7 @@ class C:
     YELLOW_B= "\033[1;33m"
     RESET   = "\033[0m"
 
-def nfgda_forecast(l2_file_0,l2_file_1):
+def nfgda_forecast(l2_file_0,l2_file_1,debug=False):
     py_path = nf_path.get_nf_detection_name(l2_file_0, path_config)
     data = np.load(py_path)
     py_path = nf_path.get_nf_detection_name(l2_file_1, path_config)
@@ -1004,16 +832,40 @@ def nfgda_forecast(l2_file_0,l2_file_1):
     gps=[DataGFG(data,data['nfout']),DataGFG(data1,data1['nfout'])]
     worker = Prediction_Worker(gps)
     worker.update_velocitys(0)
-    tvec=[]
-    ele_map=[]
-    mean_map=[]
-    tvec = worker.gps[0].timestamp.astype('datetime64[10s]')\
-        +np.arange(10,7200,10)*np.timedelta64(1, 's')
+    tvec = worker.gps[0].timestamp.astype('datetime64[m]')\
+        +np.arange(60,7201,60)*np.timedelta64(1, 's')
+    fig, axs = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=150)
+    pdata = np.ma.masked_where(rmask,data['inputNF'][:,:,1])
+    pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
+    axs.set_xlim(-100,100)
+    axs.set_ylim(-100,100)
+    axs.set_xlabel('x(km)')
+    axs.set_ylabel('y(km)',labelpad=-10)
+    axs.set_aspect('equal')
+
     for t in tvec:
         dt = (t-worker.gps[0].timestamp)/np.timedelta64(60, 's')
-        end = worker.prediction(0, dt)
-        ele_map.append(end.anchors_to_arcs_map())
-        end = worker.prediction(0, dt,mode='mean')
-        mean_map.append(end.anchors_to_arcs_map())
-    data_dict = {"ele_map": ele_map, "mean_map": mean_map, "start_timestamps":tvec}
-    np.savez(nf_path.get_nf_forecast_name(l2_file_0, path_config), **data_dict)
+        fig.suptitle(t.astype(datetime.datetime).strftime('%Y/%m/%d %H:%M:%S')+f' (+{int(dt)} mins)',y=0.95)
+        if worker.connects[0].motions.ndim==3:
+            end = worker.prediction(0, dt)
+            axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,alpha=0.7,color='k')
+            end = worker.prediction(0, dt,mode='mean')
+            axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,alpha=0.7,color='r')
+        else:
+            debug and print(f'{C.RED_B}[FORECAST] prediction dimension != 3 {C.RESET}',worker.connects[0].motions)
+        fig.savefig(nf_path.get_nf_forecast_name(l2_file_0, path_config,t))
+        for ln in axs.lines[:]:
+            ln.remove()
+    plt.close(fig)
+
+    # ele_map=[]
+    # mean_map=[]
+    # for t in tvec:
+    #     dt = (t-worker.gps[0].timestamp)/np.timedelta64(60, 's')
+    #     end = worker.prediction(0, dt)
+    #     ele_map.append(end.anchors_to_arcs_map())
+    #     end = worker.prediction(0, dt,mode='mean')
+    #     axs.plot(gps.arc_anchors[:,0,:].T,gps.arc_anchors[:,1,:].T,alpha=0.7,color='k')
+    #     mean_map.append(end.anchors_to_arcs_map())
+    # data_dict = {"ele_map": ele_map, "mean_map": mean_map, "start_timestamps":tvec}
+    # np.savez(nf_path.get_nf_forecast_name(l2_file_0, path_config), **data_dict)

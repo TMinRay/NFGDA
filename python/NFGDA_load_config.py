@@ -1,5 +1,5 @@
 import configparser
-from tminlib import math_kit as mk
+import math_kit as mk
 import numpy as np
 import os
 from scipy.interpolate import LinearNDInterpolator
@@ -10,6 +10,8 @@ export_preds_dir = config["Settings"]["export_preds_dir"]
 os.makedirs(export_preds_dir,exist_ok=True)
 evalbox_on = config.getboolean('Settings', 'evalbox_on')
 export_forecast_dir = config["Settings"]["export_forecast_dir"]
+V06_dir = config["Settings"]["V06_dir"]
+radar_id = config["Settings"]["radar_id"]
 fig_dir = config["Settings"]["fig_dir"]
 label_on = config.getboolean('labels', 'label_on')
 if label_on:
@@ -21,10 +23,10 @@ Cx, Cy = np.meshgrid(np.arange(-100,100.5,0.5),np.arange(-100,100.5,0.5))
 r = np.sqrt(Cx**2+Cy**2)
 rmask = r>=100
 
-radar_id = 'KABX'
-V06_dir = '../V06/runtime/'+radar_id
+# radar_id = 'KABX'
+# V06_dir = '../V06/runtime/'+radar_id
 os.makedirs(V06_dir,exist_ok=True)
-nf_dir = V06_dir+'/npz'
+nf_dir = V06_dir+'npz/'
 os.makedirs(nf_dir,exist_ok=True)
 
 PARROT_mask_on = False

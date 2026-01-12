@@ -22,7 +22,6 @@ async def counter_loop(interval=120):
     print()  # move to next line after finishing
 
 class HostDaemon:
-    states = ['idle', 'checking', 'downloading']
     def __init__(self,
                 dl_workers=4,
                 nfgda_workers=4,
@@ -81,7 +80,6 @@ class HostDaemon:
                     tprint(f"[Downloader] MDM! Skip: {vol.filename}")
                     continue
                 self.live_nexrad[self.cur_nex_idx] = vol.filename
-                tprint(f'download_q.put [{vol.filename}],[{self.cur_nex_idx}]')
                 await self.download_q.put((vol,self.cur_nex_idx))
                 self.cur_nex_idx = (self.cur_nex_idx + 1) % self.live_nexrad.size
 
@@ -99,10 +97,10 @@ class HostDaemon:
                             vol
                         )
                     self.nfgda_ready[idx].set()
-                    tprint(f'nfgda_ready [{idx}] set')
+                    tprint(f'[Downloader] nfgda_ready [{idx}] set')
                     if self.live_nexrad[(idx - 1) % self.live_nexrad.size] != '':
-                        tprint(f'self.live_nexrad[({idx} - 1)]:{self.live_nexrad[(idx - 1) % self.live_nexrad.size]} \
-                            nfgda_q.put [{idx}]')
+                        # tprint(f'self.live_nexrad[({idx} - 1)]:{self.live_nexrad[(idx - 1) % self.live_nexrad.size]} \
+                        #     nfgda_q.put [{idx}]')
                         await self.nfgda_q.put((idx))
                 except:
                     traceback.print_exc()
@@ -118,7 +116,7 @@ class HostDaemon:
             while True:
                 idx = await self.nfgda_q.get()
                 pre_idx = (idx - 1) % self.live_nexrad.size
-                tprint(f'NFGDA [{idx}] wait nfgda_ready[{pre_idx}] ={self.nfgda_ready[pre_idx]}')
+                tprint(f'[NFGDA] {self.live_nexrad[idx].strip()} [{idx}] wait nfgda_ready[{pre_idx}] ={self.nfgda_ready[pre_idx]}')
                 await self.nfgda_ready[pre_idx].wait()
                 try:
                     async with self.ng_sem:
@@ -128,7 +126,7 @@ class HostDaemon:
                             self.live_nexrad[pre_idx],
                             self.live_nexrad[idx]
                         )
-                    tprint(f'[NFGDA] self.nfgda_ready[{pre_idx}] clear')
+                    tprint(f'[NFGDA] {self.live_nexrad[idx].strip()}[{idx}] nfgda_ready[{pre_idx}] clear; df_ready[{idx}] set')
                     self.nfgda_ready[pre_idx].clear()
                     self.df_ready[idx].set()
                     await self.d_forecast_q.put((idx))
@@ -146,7 +144,7 @@ class HostDaemon:
             while True:
                 idx = await self.d_forecast_q.get()
                 next_idx = (idx + 1) % self.live_nexrad.size
-                tprint(f'FORECAST [{idx}] wait df_ready[{next_idx}]')
+                tprint(f'[FORECAST] {self.live_nexrad[idx].strip()}[{idx}] wait df_ready[{next_idx}]')
                 await self.df_ready[next_idx].wait()
                 try:
                     async with self.ng_sem:
@@ -156,7 +154,7 @@ class HostDaemon:
                             self.live_nexrad[idx],
                             self.live_nexrad[next_idx]
                         )
-                    tprint(f'[FORECAST] self.df_ready[{idx}] clear')
+                    tprint(f'[FORECAST] df_ready[{idx}] clear')
                     self.df_ready[idx].clear()
 
                 except:
@@ -172,7 +170,6 @@ class HostDaemon:
             asyncio.create_task(self.download_worker(), name="download_worker"),
             asyncio.create_task(self.nfgda_worker(),   name="nfgda_worker"),
             asyncio.create_task(self.d_forecast_worker(),   name="d_forecast_worker"),
-            # asyncio.create_task(self.status_worker(),  name="status_worker"),
         ]
 
         try:
