@@ -1,10 +1,11 @@
 import configparser
-import math_kit as mk
 import numpy as np
 import os
 import datetime
 from scipy.interpolate import LinearNDInterpolator
-import colorlevel as cl
+from importlib.resources import files
+from . import math_kit as mk
+from . import colorlevel as cl
 VM=cl.VarMap()
 varname_table=VM.varname_table
 varunit_table=VM.varunit_table
@@ -57,8 +58,8 @@ s2xdel = s2xnum[1]-s2xnum[0]
 s2ydel = s2ynum[1]-s2ynum[0]
 s2g = s2ydel/s2xdel
 s2gc = s2ynum[1]-s2g*s2xnum[1]
-Celldp = np.load("Celldp.npy")
-Celldpw = np.load("Celldpw.npy")
+Celldp = np.load(files("nfgda").joinpath("Celldp.npy"))
+Celldpw = np.load(files("nfgda").joinpath("Celldpw.npy"))
 ###### Beta Cell magic numbers ######
 
 ###### FTC Beta Z, dZ displacements ######

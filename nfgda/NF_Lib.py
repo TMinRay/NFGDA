@@ -1,4 +1,3 @@
-# import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 import scipy.io
 from scipy.signal import medfilt2d
@@ -9,12 +8,10 @@ from skimage.morphology import skeletonize, disk, binary_dilation, remove_small_
 from skimage.measure import label
 import matplotlib.pyplot as plt
 import sys
-# import os
-# import datetime
 import pyart
 from pathlib import Path
-import nf_path
-from NFGDA_load_config import *
+from . import nf_path
+from .NFGDA_load_config import *
 
 import nexradaws
 aws_int = nexradaws.NexradAwsInterface()
@@ -164,7 +161,7 @@ class NFModule:
         unImpSugRuleOut = np.sum(orr*self.outcoef,axis=-1)
         return np.sum( unImpSugRuleOut*w, axis=-1 )/sw
 
-fuzzGST = NFModule('NF00ref_YHWANG_fis4python.mat')
+fuzzGST = NFModule(files("nfgda").joinpath("NF00ref_YHWANG_fis4python.mat"))
 
 def nfgda_unit_step(l2_file_0,l2_file_1,process_tag=''):
     ifn = l2_file_1

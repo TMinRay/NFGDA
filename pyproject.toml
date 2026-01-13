@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nfgda"
+dynamic = ["version"]
+description = "NFGDA processing pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "Min-Duan Tzeng" }
+]
+
+dependencies = [
+  "numpy>=1.26.4",
+  "scipy>=1.16.1",
+  "matplotlib>=3.10.6",
+  "scikit-image>=0.25.2",
+  "arm_pyart>=2.1.1",
+  "nexradaws>=2.0.0",
+]
+
+[tool.setuptools]
+packages = { find = {} }
+
+[tool.setuptools.package-data]
+# Example: include config files if you have them
+# nfgda = ["*.npy", "*.mat"]
