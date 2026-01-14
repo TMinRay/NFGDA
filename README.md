@@ -8,91 +8,55 @@ This repository provides tools and scripts for the **Neuro-Fuzzy Gust Front Dete
 
 ```bash
 git clone git@github.com:TMinRay/NFGDA.git
+cd NFGDA
 ```
 
-### 2. Set up paths
+### 2. Set up venv
 
-Run the following command to configure necessary paths:
+Create and activate a virtual environment, then install dependencies:
 
 ```bash
-cd NFGDA/main
-bash set_path.sh
+# (Optional) deactivate any existing virtual environment
+deactivate
+
+# Create a new virtual environment
+python3.12 -m venv ~/nfgda
+
+# Activate the virtual environment
+source ~/nfgda/bin/activate
+
+# Install the package in editable mode
+python -m pip install -e .
 ```
 
-### 3. Download or copy data
+### 3. (Optional) Configure for an event or a different radar site
 
-You have two options to obtain the required data:
+Edit the `scripts/NFGDA.ini` to select the radar site and time range.
 
-#### Option 1: Copy data to the `V06` directory
-
-If you already have the data, copy it to the `V06` directory.
-
-#### Option 2: Download the data
-
-Run the script `download_nexrad_l2_data.py` to automatically download the data:
-
-```bash
-python download_nexrad_l2_data.py
-```
-
-### 4. Edit the INI configuration file
-
-Open the `main/NFGDA.ini` file and set the `case_name` to your desired case. Example:
+#### Real-time forecasting
 
 ```ini
-case_name = KABX20200705_21
+radar_id = KABX
+custom_start_time = None
+custom_end_time =   None
 ```
 
-### 5. Convert the data
+#### Historic event analysis
+```ini
+radar_id = KABX
+custom_start_time = 2023,07,03,01,15,23
+custom_end_time =   2023,07,03,03,18,58
+```
+#### Configure output and runtime directories
+```ini
+export_preds_dir     = ./runtime/nfgda_detection/
+export_forecast_dir  = ./runtime/forecast/
+V06_dir              = ./runtime/V06/
+```
 
-Navigate to the `python_accessories` directory and run the following script to convert the data into the required format:
+### 4. Run NFGDA Server
 
 ```bash
-cd ../python_accessories
-python NF01_convert_V06_to_mat.py
+cd scripts
+python NFGDA_Host.py
 ```
-
-#### Optional: Labeling
-
-If needed, you can copy the labels to the following directory:
-
-```bash
-cp [case_id]_labels/ V06/[case_id]/
-```
-
-Alternatively, you can run the label script with GUI manual labeling:
-
-```bash
-python NF07_label_evalbox.py
-```
-
-### 6. Running the analysis
-
-You can choose between running the analysis with **MATLAB** or **Python**.
-
-#### Option 1: MATLAB
-
-Run the following MATLAB script in `main` for analysis:
-
-```matlab
-NF_single_run.m
-```
-
-#### Option 2: Python
-
-Alternatively, run the Python script in `main`:
-
-```bash
-python NFGDA.py
-```
-
-#### Additional MATLAB Visualization
-
-To visualize the results, run the following MATLAB script:
-
-```matlab
-NFFIG_v2.m
-```
-
----
-For any issues or further information, feel free to open an issue on this repository.
