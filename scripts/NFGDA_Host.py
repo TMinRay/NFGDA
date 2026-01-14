@@ -4,7 +4,7 @@ import sys
 import datetime
 import os
 import numpy as np
-from nfgda import NF_Lib
+import nfgda.NF_Lib as NF_Lib
 from nfgda.NFGDA_load_config import *
 import traceback
 from functools import partial
