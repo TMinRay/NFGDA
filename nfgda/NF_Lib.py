@@ -911,7 +911,7 @@ def nfgda_stochastic_summary(forecasts,l2_file_0,force=False):
         
         fig.suptitle(tnow.astype(datetime.datetime).strftime('%Y/%m/%d %H:%M:%S')+'\n'
             +valid_time.astype(datetime.datetime).strftime('%Y/%m/%d %H:%M:%S')+f' (+{int(dt)} mins)',y=0.97)
-        cs = axs.contour(Cx, Cy, pgf, levels=[10,30,50,80])
+        cs = axs.contour(Cx, Cy, pgf, levels=[30],colors='red')
         fig.savefig(nf_path.get_nf_s_forecast_name(path_config,valid_time))
         cs.remove()
         data_dict = {"nfproxy": pgf, "timestamp":valid_time}

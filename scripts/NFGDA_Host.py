@@ -239,7 +239,8 @@ class HostDaemon:
                     await self.wait_until_qsize([
                         self.download_q,
                         self.nfgda_q,
-                        self.d_forecast_q],
+                        self.d_forecast_q,
+                        self.s_forecast_q],
                         self.nexrad_buf_size//4)
         finally:
             await self.shutdown()
@@ -255,7 +256,7 @@ class HostDaemon:
         self.ng_pool.shutdown(wait=False)
         self.df_pool.shutdown(wait=False)
 
-    async def delay_shutdown(self, timeout=300):
+    async def delay_shutdown(self, timeout=3600):
         self.running = False
         try:
             await asyncio.wait_for(

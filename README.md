@@ -44,8 +44,8 @@ custom_end_time =   None
 #### Historic event analysis
 ```ini
 radar_id = KABX
-custom_start_time = 2023,07,03,01,15,23
-custom_end_time =   2023,07,03,03,18,58
+custom_start_time = 2020,07,07,01,22,24
+custom_end_time =   2020,07,07,03,48,02
 ```
 #### Configure output and runtime directories
 ```ini
