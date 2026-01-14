@@ -21,27 +21,34 @@ async def counter_loop(interval=120):
 
 class HostDaemon:
     def __init__(self,
+                cstart = None,
+                cend = None,
                 dl_workers=4,
                 nfgda_workers=4,
-                df_workers=4,
-                dl_qsize=20,
-                nfgda_qsize=20,
-                df_qsize = 20):
+                df_workers=8):
         self.running = True
         self.pull_seconds = 120
-        self.last_nexrad = datetime.datetime.now()-datetime.timedelta(minutes=90)
+        if cstart is None:
+            self.last_nexrad = datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(minutes=90)
+            self.exit_time = datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=360)
+            self.real_time_mode = True
+        else:
+            self.last_nexrad = cstart-datetime.timedelta(minutes=1)
+            self.exit_time = cend
+            self.real_time_mode = False
+
         self.path_config = path_config
 
-        self.nexrad_buf_size = 20
+        self.nexrad_buf_size = 30
         self.live_nexrad = np.full((self.nexrad_buf_size),'', dtype=object)
         self.nfgda_ready = [asyncio.Event() for _ in range(self.nexrad_buf_size)]
         self.df_ready = [asyncio.Event() for _ in range(self.nexrad_buf_size)]
         self.cur_nex_idx = 0
 
         # pipeline queues
-        self.download_q   = asyncio.Queue(maxsize=dl_qsize)
-        self.nfgda_q      = asyncio.Queue(maxsize=nfgda_qsize)
-        self.d_forecast_q = asyncio.Queue(maxsize=df_qsize)
+        self.download_q   = asyncio.Queue(maxsize=self.nexrad_buf_size)
+        self.nfgda_q      = asyncio.Queue(maxsize=self.nexrad_buf_size)
+        self.d_forecast_q = asyncio.Queue(maxsize=self.nexrad_buf_size)
         self.result_q     = asyncio.Queue()
 
         # executors
@@ -60,7 +67,10 @@ class HostDaemon:
     async def check_update(self):
         tprint(ht_tag+f"Checking for [{radar_id}] updates... latest nexrad =",self.last_nexrad - datetime.timedelta(seconds=1))
         try:
-            scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad, datetime.datetime.now(), radar_id)
+            if self.real_time_mode:
+                scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad, datetime.datetime.now(datetime.timezone.utc), radar_id)
+            else:
+                scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad, self.last_nexrad+datetime.timedelta(minutes=20), radar_id)
             # scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad - datetime.timedelta(days=1), datetime.datetime.now()- datetime.timedelta(days=1), radar_id)
         except TypeError:
             tprint(
@@ -83,6 +93,9 @@ class HostDaemon:
                 self.live_nexrad[self.cur_nex_idx] = vol.filename
                 await self.download_q.put((vol,self.cur_nex_idx))
                 self.cur_nex_idx = (self.cur_nex_idx + 1) % self.live_nexrad.size
+            tprint(ht_tag,self.last_nexrad, self.exit_time,self.last_nexrad > self.exit_time)
+            if self.last_nexrad > self.exit_time:
+                await self.delay_shutdown()
 
     async def download_worker(self):
         loop = asyncio.get_running_loop()
@@ -148,6 +161,10 @@ class HostDaemon:
                 idx = await self.d_forecast_q.get()
                 next_idx = (idx + 1) % self.live_nexrad.size
                 tprint(df_tag+f'{self.live_nexrad[idx].strip()}[{idx}] wait df_ready[{next_idx}]')
+                if (next_idx == self.cur_nex_idx) and self.real_time_mode:
+                    tprint(df_tag+f'Last Detection {self.live_nexrad[idx].strip()}[{idx}] close forecast worker.')
+                    self.d_forecast_q.task_done()
+                    continue
                 await self.df_ready[next_idx].wait()
                 try:
                     async with self.ng_sem:
@@ -180,7 +197,15 @@ class HostDaemon:
         try:
             while self.running:
                 await self.check_update()
-                await counter_loop(self.pull_seconds)
+                if self.real_time_mode:
+                    await counter_loop(self.pull_seconds)
+                else:
+                    await counter_loop(5)
+                    await self.wait_until_qsize([
+                        self.download_q,
+                        self.nfgda_q,
+                        self.d_forecast_q],
+                        self.nexrad_buf_size//4)
         finally:
             await self.shutdown()
 
@@ -195,6 +220,33 @@ class HostDaemon:
         self.ng_pool.shutdown(wait=False)
         self.df_pool.shutdown(wait=False)
 
+    async def delay_shutdown(self, timeout=300):
+        self.running = False
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    self.download_q.join(),
+                    self.nfgda_q.join(),
+                    self.d_forecast_q.join(),
+                ),
+                timeout,
+            )
+        except asyncio.TimeoutError:
+            tprint(ht_tag+
+                "Shutdown timed out:\n"
+                f"Queues not drained: download={self.download_q.qsize()} nfgda={self.nfgda_q.qsize()}"
+                f"forecast={self.d_forecast_q.qsize()}")
+        await self.shutdown()
+
+    async def wait_until_qsize(self, qs, max_remaining, timeout=None):
+        async def _wait():
+            while max(q.qsize() for q in qs) > max_remaining:
+                await asyncio.sleep(1)
+        if timeout is None:
+            await _wait()
+        else:
+            await asyncio.wait_for(_wait(), timeout)
+
 if __name__ == "__main__":
-    daemon_host = HostDaemon()
+    daemon_host = HostDaemon(custom_start_time,custom_end_time)
     asyncio.run(daemon_host.run())
