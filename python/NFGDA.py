@@ -15,9 +15,12 @@ from datetime import datetime
 from NFGDA_load_config import *
 
 PARROT_mask_on = True
+# PARROT_mask_on = False
 
 thrREF = -5
 thrdREF = 0.3
+# thrREF=-10
+# thrdREF = -20
 RegR = np.arange(0,400)/4
 RegAZ = np.arange(0,360,0.5)*np.pi/180
 RegPolarX = RegR[:,np.newaxis] * np.sin(RegAZ[np.newaxis,:])
@@ -104,7 +107,7 @@ def gen_beta(a2,a2_thr,ftcs):
     scoremt = np.zeros(a2.shape)
     scoremt[c_indices[:,0],c_indices[:,1]] = total_score/score_scale
     return scoremt
-######### FTC Beta Z, dZ displacements ###########
+######### FTC Beta Z, dZ displacements and plans ###########
 datacy = np.arange(-8,9).reshape(1,-1)
 datacx = np.zeros((1,17))
 datac = np.swapaxes(np.array([datacy,datacx]),0,2)
@@ -122,7 +125,35 @@ for irot in np.arange(0,180,rotdegree):
     ftcs.append(rot_displace(datas,irot))
 ftcc = np.array(ftcc)
 ftcs = np.array(ftcs)
-######### FTC Beta Z, dZ displacements ###########
+
+# # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
+z_cfun = make_ftc_cscore([15, 20, 3, 3, -1, 12, 4, -2, 3])
+z_sfun = make_ftc_sscore([0, 5, 5, 2,-1, 5, 3,-3, 1])
+
+# # z_cfun = make_ftc_cscore([3, 8, 3, 3, -1, 12, 4, -2, 3])
+# # z_sfun = make_ftc_sscore([-8, -3, 5, 2,-1, 5, 3,-3, 1])
+
+# zc_para = [-5, 0, 3, 3, -1, 12, 4, -2, 3]
+# zs_para = [-15, -3, 5, 2,-1, 5, 3,-3, 1]
+# z_cfun = make_ftc_cscore(zc_para)
+# z_sfun = make_ftc_sscore(zs_para)
+
+zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
+
+dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
+dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
+
+# # dz_cfun = make_ftc_cscore([0,10,4,3,-2,9,4,-3,2])
+# # dz_sfun = make_ftc_sscore([-10,-5,5,2,-1,8,2,-3,1])
+
+# dzc_para = [20, 25,4,3,-2,9,4,-3,2]
+# dzs_para = [3,25,5,2,-1,8,2,-3,1]
+# dz_cfun = make_ftc_cscore(dzc_para)
+# dz_sfun = make_ftc_sscore(dzs_para)
+
+dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
+
+######### FTC Beta Z, dZ displacements and plans ###########
 mvdiscx = np.zeros((17,17))
 mvdiscy = np.zeros((17,17))
 for ix in range(17):
@@ -272,19 +303,8 @@ def nfgda_unit_step(nexrad_0,nexrad_1,process_tag):
     rotgz = PARITP[:,:,0]
     interpolator.values = diffz.reshape(-1,1)
     rotitp = interpolator(Cx, Cy)
-    
-    # # cnum1, cnum2, csig1, cfactor1, cintersec1, csig2, cfactor2, cintersec2, cyfill = c_para
-    # z_cfun = make_ftc_cscore([15, 20, 3, 3, -1, 12, 4, -2, 3])
-    # z_sfun = make_ftc_sscore([0, 5, 5, 2,-1, 5, 3,-3, 1])
-    z_cfun = make_ftc_cscore([3, 8, 3, 3, -1, 12, 4, -2, 3])
-    z_sfun = make_ftc_sscore([-8, -3, 5, 2,-1, 5, 3,-3, 1])
-    zftcs = [FTC_PLAN(ftcc,z_cfun,3), FTC_PLAN(ftcs,z_sfun,1)]
+
     zbeta = gen_beta(rotgz,thrREF,zftcs)
-    # dz_cfun = make_ftc_cscore([5,15,4,3,-2,9,4,-3,2])
-    # dz_sfun = make_ftc_sscore([-10,5,5,2,-1,8,2,-3,1])
-    dz_cfun = make_ftc_cscore([0,10,4,3,-2,9,4,-3,2])
-    dz_sfun = make_ftc_sscore([-10,-5,5,2,-1,8,2,-3,1])
-    dzftcs = [FTC_PLAN(ftcc,dz_cfun,2), FTC_PLAN(ftcs,dz_sfun,1)]
     dzbeta = gen_beta(rotitp,thrdREF,dzftcs)
     ############# Beta Z, dZ ############
     zbeta[zbeta<0]=0

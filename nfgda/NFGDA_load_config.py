@@ -13,6 +13,7 @@ varunit_table=VM.varunit_table
 config = configparser.ConfigParser()
 config.read("NFGDA.ini")
 export_preds_dir = config["Settings"]["export_preds_dir"]
+evalbox_on = config.getboolean('Settings', 'evalbox_on')
 export_forecast_dir = config["Settings"]["export_forecast_dir"]
 V06_dir = config["Settings"]["V06_dir"]
 radar_id = config["Settings"]["radar_id"]
@@ -40,9 +41,10 @@ os.makedirs(V06_dir,exist_ok=True)
 nf_dir = V06_dir+'npz/'
 os.makedirs(nf_dir,exist_ok=True)
 os.makedirs(export_preds_dir,exist_ok=True)
+sf_dir = os.path.join(export_forecast_dir, 'forecast-summary')
+os.makedirs(sf_dir,exist_ok=True)
 
 PARROT_mask_on = False
-evalbox_on = False
 
 thrREF = -5
 thrdREF = 0.3
@@ -81,6 +83,7 @@ datas = np.swapaxes(np.array([datasy,datasx]),0,2)
 
 class path_struct():
     def __init__(self):
+        self.radar_id = radar_id
         self.nf_dir = nf_dir
         self.V06_dir = V06_dir
         self.nf_preds_dir = export_preds_dir

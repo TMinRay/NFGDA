@@ -18,6 +18,7 @@ aws_int = nexradaws.NexradAwsInterface()
 interpolator = LinearNDInterpolator((RegPolarX.reshape(-1),RegPolarY.reshape(-1)), np.zeros(RegPolarX.shape).reshape(-1))
 
 kernel = np.ones((3,3), dtype=int)
+ele_t_const, mean_t_const = 29.04, 28.43
 
 def rot_displace(dp,origindeg):
     dpvector = np.swapaxes(dp,1,2)
@@ -429,17 +430,23 @@ GFG_PREDICT = 0b00100
 class GFGroups:
     ogn = np.array([Cx[0,0],Cy[0,0]])[:,np.newaxis]
     shape = Cx.shape
-    def __init__(self, arc_anchors, timestamp=None, datakind = GFG_NONE):
-        self.arc_anchors = arc_anchors
+    n_anchors = 10
+    dummy_anchors = np.array([np.linspace(Cx[0,0],Cx[0,1],10), np.linspace(Cy[0,0],Cy[0,1],10)])[np.newaxis,:]
+    def __init__(self, arc_anchors = None, timestamp=None, datakind = GFG_NONE):
+        if arc_anchors is None:
+            self.arc_anchors = self.dummy_anchors.copy()
+        else:
+            self.arc_anchors = np.asarray(arc_anchors).copy()
         self.timestamp = timestamp
-        self.cur_motions = np.full(arc_anchors.shape, np.nan)
-        self.pre_motions = np.full(arc_anchors.shape, np.nan)
-        self.next_gp = np.full(arc_anchors.shape[0], np.nan)
+        self.cur_motions = np.full(self.arc_anchors.shape, np.nan)
+        self.pre_motions = np.full(self.arc_anchors.shape, np.nan)
+        self.next_gp = np.full(self.arc_anchors.shape[0], np.nan)
         self.datakind = datakind
     def anchors_to_arcs(self):
         self.arc_points = []
         if len(self.arc_anchors)!=0:
             for nf_anchor in self.arc_anchors:
+
                 self.arc_points.append(rotation_polyfit(nf_anchor,2))
         return self.arc_points
     def anchors_to_arcs_map(self):
@@ -479,7 +486,6 @@ class GFGroups:
         return obj
 
 class DataGFG(GFGroups):
-    n_anchors = 10
     def __init__(self, data, binary_mask, kind = GFG_NONE):
         arc_anchors = []
         neighbors = convolve(binary_mask.astype(int), kernel, mode='constant') - binary_mask
@@ -626,10 +632,15 @@ def find_roation_coord(points):
     return angle, points[:,i]
 
 def rotation_polyfit(points,n,fitn=None):
+    if np.isnan(points).any():
+        return points
     if points.shape[1]>2:
-        ang, origin = find_roation_coord(points)
-        rot_points = np.matmul(rotation_matrix_2d(-ang),points-origin[:,np.newaxis])
-        coeffs = np.polyfit(rot_points[0,:], rot_points[1,:], n)
+        try:
+            ang, origin = find_roation_coord(points)
+            rot_points = np.matmul(rotation_matrix_2d(-ang),points-origin[:,np.newaxis])
+            coeffs = np.polyfit(rot_points[0,:], rot_points[1,:], n)
+        except:
+            return points
         if fitn is None:
             fx = np.arange(np.min(rot_points[0,:]),np.max(rot_points[0,:])+0.25,0.25)
         else:
@@ -780,7 +791,10 @@ def nfgda_fig(l2_file):
     fig.savefig(py_path[:-3]+'png')
     plt.close(fig)
 
-def nfgda_forecast(l2_file_0,l2_file_1,debug=False):
+def nfgda_forecast(l2_file_0,l2_file_1,debug=False,suppress_fig=False):
+    if suppress_fig:
+        tprint(df_tag+
+            f'{l2_file_0} figures are suppressed.')
     py_path = nf_path.get_nf_detection_name(l2_file_0, path_config)
     data = np.load(py_path)
     py_path = nf_path.get_nf_detection_name(l2_file_1, path_config)
@@ -798,22 +812,27 @@ def nfgda_forecast(l2_file_0,l2_file_1,debug=False):
     axs.set_xlabel('x(km)')
     axs.set_ylabel('y(km)',labelpad=-10)
     axs.set_aspect('equal')
-
+    forecast_anchors = []
     for t in tvec:
         dt = (t-worker.gps[0].timestamp)/np.timedelta64(60, 's')
-        fig.suptitle(t.astype(datetime.datetime).strftime('%Y/%m/%d %H:%M:%S')+f' (+{int(dt)} mins)',y=0.95)
         if worker.connects[0].motions.ndim==3:
-            end = worker.prediction(0, dt)
-            axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,alpha=0.7,color='k')
-            end = worker.prediction(0, dt,mode='mean')
-            axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,alpha=0.7,color='r')
+            ende = worker.prediction(0, dt)
+            endm = worker.prediction(0, dt,mode='mean')
+            forecast_anchors.append((ende,endm))
+            if suppress_fig: continue
+            axs.plot(ende.arc_anchors[:,0,:].T,ende.arc_anchors[:,1,:].T,alpha=0.7,color='k')
+            axs.plot(endm.arc_anchors[:,0,:].T,endm.arc_anchors[:,1,:].T,alpha=0.7,color='r')
         else:
+            forecast_anchors.append((GFGroups(timestamp=t),GFGroups(timestamp=t)))
             debug and tprint(df_tag+f'{C.RED_B} Prediction dimension != 3 {C.RESET}',worker.connects[0].motions)
+        if suppress_fig: continue
+        fig.suptitle(worker.gps[0].timestamp.astype(datetime.datetime).item().strftime('%Y/%m/%d %H:%M:%S')+'\n'+
+                t.astype(datetime.datetime).strftime('%Y/%m/%d %H:%M:%S')+f' (+{int(dt)} mins)',y=0.97)
         fig.savefig(nf_path.get_nf_forecast_name(l2_file_0, path_config,t))
         for ln in axs.lines[:]:
             ln.remove()
     plt.close(fig)
-
+    return tvec,forecast_anchors
     # ele_map=[]
     # mean_map=[]
     # for t in tvec:
@@ -825,3 +844,162 @@ def nfgda_forecast(l2_file_0,l2_file_1,debug=False):
     #     mean_map.append(end.anchors_to_arcs_map())
     # data_dict = {"ele_map": ele_map, "mean_map": mean_map, "start_timestamps":tvec}
     # np.savez(nf_path.get_nf_forecast_name(l2_file_0, path_config), **data_dict)
+
+def exp_weight(dt,t_const):
+    return np.exp(-dt/t_const)
+
+def nfgda_stochastic_summary(forecasts,l2_file_0,force=False):
+    py_path = nf_path.get_nf_detection_name(l2_file_0, path_config)
+    data = np.load(py_path)
+
+    live_tdx = np.full((len(forecasts),),False)
+    tstart = data['timestamp']
+    tnow = tstart.astype('datetime64[m]')+60*np.timedelta64(1, 's')
+    forecast_end = tstart
+    for tdx,buf in enumerate(forecasts):
+        if len(buf)==2:
+            if buf[0][0]>tnow and not(force):
+                tprint(df_tag+
+                    f'{tnow} is out of date. New data {buf[0][0]} available.')
+                return
+            if buf[0][-1]>tnow:
+                live_tdx[tdx]=True
+            forecast_size = buf[0].size
+            # tprint(df_tag+f'forecast_size = {forecast_size}')
+    if np.sum(live_tdx)==0:
+        tprint(df_tag+
+            'No forecast for summary.')
+        return
+    else:
+        summary_tdx = np.where(live_tdx)[0]
+        tprint(df_tag+
+            'Summary forecasts:',
+            *[forecasts[tdx][0][0] for tdx in summary_tdx])
+    ips=[]
+    for tdx in summary_tdx:
+        ips.append(np.where(forecasts[tdx][0]==tnow)[0][0])
+    ips = np.array(ips,dtype=int)
+    tline = forecasts[summary_tdx[np.argmin(ips)]][0][np.min(ips):]
+    fig, axs = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=150)
+    pdata = np.ma.masked_where(rmask,data['inputNF'][:,:,1])
+    pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
+    axs.set_xlim(-100,100)
+    axs.set_ylim(-100,100)
+    axs.set_xlabel('x(km)')
+    axs.set_ylabel('y(km)',labelpad=-10)
+    axs.set_aspect('equal')
+    # for ipdx,tdx in zip(ips,summary_tdx):
+    #     print(forecasts[tdx][0][ipdx])
+
+    for ip in range(forecast_size-np.min(ips)):
+        ps = 0
+        pgf = np.zeros(Cx.shape)
+        valid_time = tline[ip]
+        for ipdx,tdx in zip(ips,summary_tdx):
+            if (ipdx+ip) >= forecast_size:continue
+            arcs = forecasts[tdx][1][ipdx+ip]
+            if valid_time!= forecasts[tdx][0][ipdx+ip]:
+                raise ValueError(df_tag+f'sf time mismatch {valid_time} {forecasts[tdx][0][ipdx+ip]}')
+            dt = (valid_time-tnow)/np.timedelta64(60, 's')
+            ele_w = exp_weight(dt,ele_t_const)
+            mean_w = exp_weight(dt,mean_t_const)
+            ps += ele_w + mean_w
+            pgf += ele_w*binary_dilation(arcs[0].anchors_to_arcs_map(), footprint=disk(3)).astype(float)
+            pgf += mean_w*binary_dilation(arcs[1].anchors_to_arcs_map(), footprint=disk(3)).astype(float)
+        pgf=pgf/ps*1e2
+        pgf[rmask] = 0
+        
+        fig.suptitle(tnow.astype(datetime.datetime).strftime('%Y/%m/%d %H:%M:%S')+'\n'
+            +valid_time.astype(datetime.datetime).strftime('%Y/%m/%d %H:%M:%S')+f' (+{int(dt)} mins)',y=0.97)
+        cs = axs.contour(Cx, Cy, pgf, levels=[10,30,50,80])
+        fig.savefig(nf_path.get_nf_s_forecast_name(path_config,valid_time))
+        cs.remove()
+        data_dict = {"nfproxy": pgf, "timestamp":valid_time}
+        np.savez(nf_path.get_nf_s_forecast_name(path_config,valid_time)[:-3]+'npz', **data_dict)
+
+    # exp_preds_event = export_preds_dir + case_name
+    # savedir = os.path.join(export_forecast_dir[:-1]+'-stochastic/', case_name)
+    # os.makedirs(savedir,exist_ok=True)
+    # linesdir = os.path.join(export_forecast_dir[:-1]+'-lines/', case_name)
+    # os.makedirs(linesdir,exist_ok=True)
+    # pmapdir = os.path.join(export_forecast_dir[:-1]+'-pmap/', case_name)
+    # os.makedirs(pmapdir,exist_ok=True)
+    # npz_list = glob.glob(exp_preds_event + "/*npz")
+
+    # evs = []
+    # gps = []
+    # data = []
+    # for ifn in npz_list:
+    #     data.append(np.load(ifn))
+    #     evs.append(DataGFG(data[-1],skeletonize(data[-1]['evalbox'])))
+    #     # gps.append(DataGFG(data[-1],data[-1]['nfout']))
+    # predict_worker = Prediction_Worker(gps)
+    # eval_worker = Prediction_Worker(evs)
+    # worker = eval_worker
+    # for iframe in range(len(npz_list)-1):
+    #     worker.update_velocitys(iframe)
+    # max_predict = 12
+    # for pframe in range(len(npz_list)-1):
+    #     ppi_id = os.path.basename(npz_list[pframe])
+    #     pgf = np.zeros(Cx.shape)
+    #     ps = 0
+    #     fig, axs = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
+    #     figpmap, axspmap = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
+    #     pdata = np.ma.masked_where(rmask,data[pframe]['inputNF'][:,:,1])
+    #     pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
+    #     axs.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
+    #     for iframe in range(pframe-max_predict,pframe):
+    #         if iframe<0:
+    #             continue
+    #         print(f'[{iframe}] -> [{pframe}]')
+    #         dt = (worker.gps[pframe].timestamp-worker.gps[iframe].timestamp)/np.timedelta64(60, 's')
+    #         if worker.connects[iframe].igp_anchor.ndim>1:
+    #             ele_w = exp_weight(dt,ele_t_const)
+    #             mean_w = exp_weight(dt,mean_t_const)
+    #             # ele_w = 1
+    #             # mean_w = 1
+    #             ps += ele_w + mean_w
+    #             end = worker.prediction(iframe, dt)
+    #             axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=((0.5+0.5*(pframe-iframe)/max_predict),0,0),label='point',alpha=0.5)
+    #             pgf += ele_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
+
+    #             end = worker.prediction(iframe, dt,mode='mean')
+    #             axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=(0,0,(0.5+0.5*(pframe-iframe)/max_predict)),label='mean',alpha=0.5)
+    #             pgf += mean_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
+    #     pgf=pgf/ps*1e2
+
+
+    #     pcm=axspmap.pcolormesh(Cx,Cy,pgf,vmin=0,vmax=80,cmap='jet')
+    #     axspmap.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
+
+    #     cbar=plt.colorbar(pcm,ax=axspmap, pad=0.07)
+    #     cbar.set_label('Gust Front Proxy', fontsize=10, labelpad=2, rotation=90)
+    #     cbar.ax.yaxis.set_label_position('left')
+    #     cbar=plt.colorbar(pcz,ax=axs, pad=0.07)
+    #     cbar.set_label('Reflectivity (dBZ)', fontsize=10, labelpad=2, rotation=90)
+    #     cbar.ax.yaxis.set_label_position('left')
+
+    #     handles, labels = axs.get_legend_handles_labels()
+    #     by_label = dict(zip(labels, handles))
+    #     axs.legend(by_label.values(), by_label.keys(),loc='upper left', fontsize='small')
+    #     # axspmap.set_title(gps[iframe].timestamp)
+    #     valid_time = worker.gps[pframe].timestamp
+
+    #     for fg in [fig,figpmap]:
+    #         fg.suptitle(valid_time.astype(datetime.datetime).item().strftime('%Y/%m/%d %H:%M:%S'),y=0.95)
+    #         fg.subplots_adjust(left=0.125, right=0.985, bottom=0.08, top=0.95)
+
+    #     for ax in [axs,axspmap]:
+    #         ax.set_xlim(-100,100)
+    #         ax.set_ylim(-100,100)
+    #         ax.set_xlabel('x(km)')
+    #         ax.set_ylabel('y(km)',labelpad=-10)
+    #         ax.set_aspect('equal')
+    #     fig.savefig(os.path.join(linesdir, ppi_id[:-4]+'.png'))
+    #     plt.close(fig)
+    #     figpmap.savefig(os.path.join(pmapdir, ppi_id[:-4]+'.png'))
+    #     plt.close(figpmap)
+    #     data_dict = {"nfproxy": pgf, "timestamp":valid_time}
+    #     np.savez(os.path.join(savedir, ppi_id[:-4]+'.npz'), **data_dict)
+    # print("\n=== Full Log ===")
+    # print(except_text)

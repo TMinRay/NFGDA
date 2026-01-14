@@ -7,6 +7,7 @@ import numpy as np
 from nfgda import NF_Lib
 from nfgda.NFGDA_load_config import *
 import traceback
+from functools import partial
 
 async def counter_loop(interval=120):
     """
@@ -25,7 +26,8 @@ class HostDaemon:
                 cend = None,
                 dl_workers=4,
                 nfgda_workers=4,
-                df_workers=8):
+                df_workers=8,
+                sf_workers=8):
         self.running = True
         self.pull_seconds = 120
         if cstart is None:
@@ -44,22 +46,24 @@ class HostDaemon:
         self.nfgda_ready = [asyncio.Event() for _ in range(self.nexrad_buf_size)]
         self.df_ready = [asyncio.Event() for _ in range(self.nexrad_buf_size)]
         self.cur_nex_idx = 0
-
+        self.live_forecasts = [() for _ in range(self.nexrad_buf_size)]
         # pipeline queues
         self.download_q   = asyncio.Queue(maxsize=self.nexrad_buf_size)
         self.nfgda_q      = asyncio.Queue(maxsize=self.nexrad_buf_size)
         self.d_forecast_q = asyncio.Queue(maxsize=self.nexrad_buf_size)
-        self.result_q     = asyncio.Queue()
+        self.s_forecast_q = asyncio.Queue(maxsize=self.nexrad_buf_size)
 
         # executors
         self.dl_pool = ProcessPoolExecutor(max_workers=dl_workers)
         self.ng_pool = ProcessPoolExecutor(max_workers=nfgda_workers)
         self.df_pool = ProcessPoolExecutor(max_workers=df_workers)
+        self.sf_pool = ProcessPoolExecutor(max_workers=sf_workers)
 
         # concurrency caps (usually match executor workers)
         self.dl_sem = asyncio.Semaphore(dl_workers)
         self.ng_sem = asyncio.Semaphore(nfgda_workers)
         self.df_sem = asyncio.Semaphore(df_workers)
+        self.sf_sem = asyncio.Semaphore(sf_workers)
 
         # tasks list for shutdown
         self._tasks = []
@@ -71,7 +75,6 @@ class HostDaemon:
                 scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad, datetime.datetime.now(datetime.timezone.utc), radar_id)
             else:
                 scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad, self.last_nexrad+datetime.timedelta(minutes=20), radar_id)
-            # scans = NF_Lib.aws_int.get_avail_scans_in_range(self.last_nexrad - datetime.timedelta(days=1), datetime.datetime.now()- datetime.timedelta(days=1), radar_id)
         except TypeError:
             tprint(
                 ht_tag +
@@ -161,23 +164,29 @@ class HostDaemon:
                 idx = await self.d_forecast_q.get()
                 next_idx = (idx + 1) % self.live_nexrad.size
                 tprint(df_tag+f'{self.live_nexrad[idx].strip()}[{idx}] wait df_ready[{next_idx}]')
-                if (next_idx == self.cur_nex_idx) and self.real_time_mode:
+                if (next_idx == self.cur_nex_idx) and not(self.real_time_mode):
                     tprint(df_tag+f'Last Detection {self.live_nexrad[idx].strip()}[{idx}] close forecast worker.')
                     self.d_forecast_q.task_done()
                     continue
                 await self.df_ready[next_idx].wait()
                 try:
+                    suppress = self.d_forecast_q.qsize()>3 and self.real_time_mode
                     async with self.ng_sem:
-                        await loop.run_in_executor(
+                        results = await loop.run_in_executor(
                             self.df_pool,
-                            NF_Lib.nfgda_forecast,
-                            self.live_nexrad[idx],
-                            self.live_nexrad[next_idx]
+                            partial(
+                                NF_Lib.nfgda_forecast,
+                                self.live_nexrad[idx],
+                                self.live_nexrad[next_idx],
+                                suppress_fig = suppress,
+                            )
                         )
                     tprint(df_tag+
                         f'df_ready[{idx}] clear.')
                     self.df_ready[idx].clear()
-
+                    self.live_forecasts[idx] = results
+                    if not suppress:
+                        await self.s_forecast_q.put(idx)
                 except:
                     traceback.print_exc()
                     tprint(df_tag+
@@ -187,11 +196,37 @@ class HostDaemon:
         except asyncio.CancelledError:
             raise
 
+    async def s_forecast_worker(self):
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                idx = await self.s_forecast_q.get()
+                # next_idx = (idx + 1) % self.live_nexrad.size
+                # tprint(df_tag+f'{self.live_nexrad[idx].strip()}[{idx}] wait df_ready[{next_idx}]')
+                # await self.df_ready[next_idx].wait()
+                try:
+                    async with self.ng_sem:
+                        results = await loop.run_in_executor(
+                            self.df_pool,
+                            NF_Lib.nfgda_stochastic_summary,
+                            self.live_forecasts,
+                            self.live_nexrad[idx]
+                        )
+                except:
+                    traceback.print_exc()
+                    tprint(df_tag+
+                        f'{C.RED_B}Fatal Error.{C.RESET}')
+                finally:
+                    self.s_forecast_q.task_done()
+        except asyncio.CancelledError:
+            raise
+
     async def run(self):
         self._tasks = [
             asyncio.create_task(self.download_worker(), name="download_worker"),
             asyncio.create_task(self.nfgda_worker(),   name="nfgda_worker"),
             asyncio.create_task(self.d_forecast_worker(),   name="d_forecast_worker"),
+            asyncio.create_task(self.s_forecast_worker(),   name="s_forecast_worker"),
         ]
 
         try:
