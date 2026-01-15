@@ -16,7 +16,5 @@ def get_nf_forecast_name(l2_file, path_config, valid_time):
     return os.path.join(savedir, fn)
 
 def get_nf_s_forecast_name(path_config, valid_time):
-    savedir = os.path.join(path_config.nf_forecast_dir, 'forecast-summary')
-    os.makedirs(savedir,exist_ok=True)
     fn = f'NFGDA-forecast-{path_config.radar_id}'+valid_time.astype(datetime.datetime).strftime('%Y%m%d_%H%M%S')+'.png'
     return os.path.join(savedir, fn)
