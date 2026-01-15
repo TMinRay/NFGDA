@@ -7,7 +7,7 @@ This repository provides tools and scripts for the **Neuro-Fuzzy Gust Front Dete
 ### 1. Clone the repository
 
 ```bash
-git clone git@github.com:TMinRay/NFGDA.git
+git clone https://github.com/TMinRay/NFGDA.git
 cd NFGDA
 ```
 
@@ -26,6 +26,7 @@ python3.12 -m venv ~/nfgda
 source ~/nfgda/bin/activate
 
 # Install the package in editable mode
+# This step may take a long time (more than 10mins) when using WSL due to dependency builds
 python -m pip install -e .
 ```
 
@@ -58,5 +59,7 @@ V06_dir              = ./runtime/V06/
 
 ```bash
 cd scripts
+# Must be run from the scripts directory.
+# NFGDA_Host.py expects NFGDA.ini to be present in the current working directory.
 python NFGDA_Host.py
 ```
