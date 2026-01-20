@@ -98,7 +98,8 @@ class HostDaemon:
                 self.cur_nex_idx = (self.cur_nex_idx + 1) % self.live_nexrad.size
             tprint(ht_tag,self.last_nexrad, self.exit_time,self.last_nexrad > self.exit_time)
             if self.last_nexrad > self.exit_time:
-                await self.delay_shutdown()
+                self.running = False
+                # await self.delay_shutdown()
 
     async def download_worker(self):
         loop = asyncio.get_running_loop()
@@ -120,6 +121,8 @@ class HostDaemon:
                         # tprint(f'self.live_nexrad[({idx} - 1)]:{self.live_nexrad[(idx - 1) % self.live_nexrad.size]} \
                         #     nfgda_q.put [{idx}]')
                         await self.nfgda_q.put((idx))
+                except asyncio.CancelledError:
+                    raise
                 except:
                     traceback.print_exc()
                     tprint(dl_tag+
@@ -149,6 +152,8 @@ class HostDaemon:
                     self.nfgda_ready[pre_idx].clear()
                     self.df_ready[idx].set()
                     await self.d_forecast_q.put((idx))
+                except asyncio.CancelledError:
+                    raise
                 except:
                     traceback.print_exc()
                     tprint(ng_tag+f'{C.RED_B}Fatal Error.{C.RESET}')
@@ -171,7 +176,7 @@ class HostDaemon:
                 await self.df_ready[next_idx].wait()
                 try:
                     suppress = self.d_forecast_q.qsize()>3 and self.real_time_mode
-                    async with self.ng_sem:
+                    async with self.df_sem:
                         results = await loop.run_in_executor(
                             self.df_pool,
                             partial(
@@ -187,6 +192,8 @@ class HostDaemon:
                     self.live_forecasts[idx] = results
                     if not suppress:
                         await self.s_forecast_q.put(idx)
+                except asyncio.CancelledError:
+                    raise
                 except:
                     traceback.print_exc()
                     tprint(df_tag+
@@ -205,16 +212,21 @@ class HostDaemon:
                 # tprint(df_tag+f'{self.live_nexrad[idx].strip()}[{idx}] wait df_ready[{next_idx}]')
                 # await self.df_ready[next_idx].wait()
                 try:
-                    async with self.ng_sem:
+                    async with self.sf_sem:
                         results = await loop.run_in_executor(
                             self.df_pool,
-                            NF_Lib.nfgda_stochastic_summary,
-                            self.live_forecasts,
-                            self.live_nexrad[idx]
+                            partial(
+                                NF_Lib.nfgda_stochastic_summary,
+                                self.live_forecasts,
+                                self.live_nexrad[idx],
+                                force = not(self.real_time_mode)
+                            )
                         )
+                except asyncio.CancelledError:
+                    raise
                 except:
                     traceback.print_exc()
-                    tprint(df_tag+
+                    tprint(sf_tag+
                         f'{C.RED_B}Fatal Error.{C.RESET}')
                 finally:
                     self.s_forecast_q.task_done()
@@ -243,36 +255,49 @@ class HostDaemon:
                         self.s_forecast_q],
                         self.nexrad_buf_size//4)
         finally:
-            await self.shutdown()
+            await self.delay_shutdown()
 
     async def shutdown(self):
         self.running = False
-
+        tprint(ht_tag+
+            "Shutdown. Cancelling tasks.")
         for t in self._tasks:
             t.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+
+        # await asyncio.gather(*self._tasks, return_exceptions=True),
 
         self.dl_pool.shutdown(wait=False)
         self.ng_pool.shutdown(wait=False)
         self.df_pool.shutdown(wait=False)
+        self.sf_pool.shutdown(wait=False)
 
     async def delay_shutdown(self, timeout=3600):
         self.running = False
+        tprint(ht_tag+
+            "Delay Shutdown. Wait for Queues drained")
         try:
             await asyncio.wait_for(
                 asyncio.gather(
                     self.download_q.join(),
                     self.nfgda_q.join(),
                     self.d_forecast_q.join(),
+                    self.s_forecast_q.join(),
                 ),
                 timeout,
             )
+            tprint(ht_tag+
+                "Queues drained:\n"
+                f"Queues : download={self.download_q.qsize()}; nfgda={self.nfgda_q.qsize()}; "
+                f"d forecast={self.d_forecast_q.qsize()}; "
+                f"s forecast={self.s_forecast_q.qsize()}")
         except asyncio.TimeoutError:
             tprint(ht_tag+
                 "Shutdown timed out:\n"
-                f"Queues not drained: download={self.download_q.qsize()} nfgda={self.nfgda_q.qsize()}"
-                f"forecast={self.d_forecast_q.qsize()}")
-        await self.shutdown()
+                f"Queues not drained: download={self.download_q.qsize()}; nfgda={self.nfgda_q.qsize()}; "
+                f"d forecast={self.d_forecast_q.qsize()}; "
+                f"s forecast={self.s_forecast_q.qsize()}")
+        finally:
+            await self.shutdown()
 
     async def wait_until_qsize(self, qs, max_remaining, timeout=None):
         async def _wait():

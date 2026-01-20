@@ -12,6 +12,7 @@ import pyart
 from pathlib import Path
 from . import nf_path
 from .NFGDA_load_config import *
+import pickle
 
 import nexradaws
 aws_int = nexradaws.NexradAwsInterface()
@@ -832,7 +833,10 @@ def nfgda_forecast(l2_file_0,l2_file_1,debug=False,suppress_fig=False):
         for ln in axs.lines[:]:
             ln.remove()
     plt.close(fig)
+    with open(nf_path.get_nf_forecast_pkl_name(l2_file_0, path_config), "wb") as f:
+        pickle.dump((tvec,forecast_anchors), f)
     return tvec,forecast_anchors
+
     # ele_map=[]
     # mean_map=[]
     # for t in tvec:
@@ -859,21 +863,21 @@ def nfgda_stochastic_summary(forecasts,l2_file_0,force=False):
     for tdx,buf in enumerate(forecasts):
         if len(buf)==2:
             if buf[0][0]>tnow and not(force):
-                tprint(df_tag+
+                tprint(sf_tag+
                     f'{tnow} is out of date. New data {buf[0][0]} available.')
                 return
-            if buf[0][-1]>tnow:
+            if buf[0][-1]>tnow and buf[0][0]<tnow:
                 live_tdx[tdx]=True
             forecast_size = buf[0].size
-            # tprint(df_tag+f'forecast_size = {forecast_size}')
+            # tprint(sf_tag+f'forecast_size = {forecast_size}')
     if np.sum(live_tdx)==0:
-        tprint(df_tag+
+        tprint(sf_tag+
             'No forecast for summary.')
         return
     else:
         summary_tdx = np.where(live_tdx)[0]
-        tprint(df_tag+
-            'Summary forecasts:',
+        tprint(sf_tag+
+            f'Summary forecasts[{len(summary_tdx)}]:',
             *[forecasts[tdx][0][0] for tdx in summary_tdx])
     ips=[]
     for tdx in summary_tdx:
@@ -899,7 +903,7 @@ def nfgda_stochastic_summary(forecasts,l2_file_0,force=False):
             if (ipdx+ip) >= forecast_size:continue
             arcs = forecasts[tdx][1][ipdx+ip]
             if valid_time!= forecasts[tdx][0][ipdx+ip]:
-                raise ValueError(df_tag+f'sf time mismatch {valid_time} {forecasts[tdx][0][ipdx+ip]}')
+                raise ValueError(sf_tag+f'sf time mismatch {valid_time} {forecasts[tdx][0][ipdx+ip]}')
             dt = (valid_time-tnow)/np.timedelta64(60, 's')
             ele_w = exp_weight(dt,ele_t_const)
             mean_w = exp_weight(dt,mean_t_const)
@@ -916,90 +920,3 @@ def nfgda_stochastic_summary(forecasts,l2_file_0,force=False):
         cs.remove()
         data_dict = {"nfproxy": pgf, "timestamp":valid_time}
         np.savez(nf_path.get_nf_s_forecast_name(path_config,valid_time)[:-3]+'npz', **data_dict)
-
-    # exp_preds_event = export_preds_dir + case_name
-    # savedir = os.path.join(export_forecast_dir[:-1]+'-stochastic/', case_name)
-    # os.makedirs(savedir,exist_ok=True)
-    # linesdir = os.path.join(export_forecast_dir[:-1]+'-lines/', case_name)
-    # os.makedirs(linesdir,exist_ok=True)
-    # pmapdir = os.path.join(export_forecast_dir[:-1]+'-pmap/', case_name)
-    # os.makedirs(pmapdir,exist_ok=True)
-    # npz_list = glob.glob(exp_preds_event + "/*npz")
-
-    # evs = []
-    # gps = []
-    # data = []
-    # for ifn in npz_list:
-    #     data.append(np.load(ifn))
-    #     evs.append(DataGFG(data[-1],skeletonize(data[-1]['evalbox'])))
-    #     # gps.append(DataGFG(data[-1],data[-1]['nfout']))
-    # predict_worker = Prediction_Worker(gps)
-    # eval_worker = Prediction_Worker(evs)
-    # worker = eval_worker
-    # for iframe in range(len(npz_list)-1):
-    #     worker.update_velocitys(iframe)
-    # max_predict = 12
-    # for pframe in range(len(npz_list)-1):
-    #     ppi_id = os.path.basename(npz_list[pframe])
-    #     pgf = np.zeros(Cx.shape)
-    #     ps = 0
-    #     fig, axs = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
-    #     figpmap, axspmap = plt.subplots(1, 1, figsize=(3.3/0.7, 3/0.7),dpi=250)
-    #     pdata = np.ma.masked_where(rmask,data[pframe]['inputNF'][:,:,1])
-    #     pcz=axs.pcolormesh(Cx,Cy,pdata,cmap=cl.zmap,norm=cl.znorm)
-    #     axs.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
-    #     for iframe in range(pframe-max_predict,pframe):
-    #         if iframe<0:
-    #             continue
-    #         print(f'[{iframe}] -> [{pframe}]')
-    #         dt = (worker.gps[pframe].timestamp-worker.gps[iframe].timestamp)/np.timedelta64(60, 's')
-    #         if worker.connects[iframe].igp_anchor.ndim>1:
-    #             ele_w = exp_weight(dt,ele_t_const)
-    #             mean_w = exp_weight(dt,mean_t_const)
-    #             # ele_w = 1
-    #             # mean_w = 1
-    #             ps += ele_w + mean_w
-    #             end = worker.prediction(iframe, dt)
-    #             axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=((0.5+0.5*(pframe-iframe)/max_predict),0,0),label='point',alpha=0.5)
-    #             pgf += ele_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
-
-    #             end = worker.prediction(iframe, dt,mode='mean')
-    #             axs.plot(end.arc_anchors[:,0,:].T,end.arc_anchors[:,1,:].T,'.-',color=(0,0,(0.5+0.5*(pframe-iframe)/max_predict)),label='mean',alpha=0.5)
-    #             pgf += mean_w*binary_dilation(end.anchors_to_arcs_map(), footprint=disk(3)).astype(float)
-    #     pgf=pgf/ps*1e2
-
-
-    #     pcm=axspmap.pcolormesh(Cx,Cy,pgf,vmin=0,vmax=80,cmap='jet')
-    #     axspmap.contour(Cx,Cy,data[pframe]['evalbox'],colors='k')
-
-    #     cbar=plt.colorbar(pcm,ax=axspmap, pad=0.07)
-    #     cbar.set_label('Gust Front Proxy', fontsize=10, labelpad=2, rotation=90)
-    #     cbar.ax.yaxis.set_label_position('left')
-    #     cbar=plt.colorbar(pcz,ax=axs, pad=0.07)
-    #     cbar.set_label('Reflectivity (dBZ)', fontsize=10, labelpad=2, rotation=90)
-    #     cbar.ax.yaxis.set_label_position('left')
-
-    #     handles, labels = axs.get_legend_handles_labels()
-    #     by_label = dict(zip(labels, handles))
-    #     axs.legend(by_label.values(), by_label.keys(),loc='upper left', fontsize='small')
-    #     # axspmap.set_title(gps[iframe].timestamp)
-    #     valid_time = worker.gps[pframe].timestamp
-
-    #     for fg in [fig,figpmap]:
-    #         fg.suptitle(valid_time.astype(datetime.datetime).item().strftime('%Y/%m/%d %H:%M:%S'),y=0.95)
-    #         fg.subplots_adjust(left=0.125, right=0.985, bottom=0.08, top=0.95)
-
-    #     for ax in [axs,axspmap]:
-    #         ax.set_xlim(-100,100)
-    #         ax.set_ylim(-100,100)
-    #         ax.set_xlabel('x(km)')
-    #         ax.set_ylabel('y(km)',labelpad=-10)
-    #         ax.set_aspect('equal')
-    #     fig.savefig(os.path.join(linesdir, ppi_id[:-4]+'.png'))
-    #     plt.close(fig)
-    #     figpmap.savefig(os.path.join(pmapdir, ppi_id[:-4]+'.png'))
-    #     plt.close(figpmap)
-    #     data_dict = {"nfproxy": pgf, "timestamp":valid_time}
-    #     np.savez(os.path.join(savedir, ppi_id[:-4]+'.npz'), **data_dict)
-    # print("\n=== Full Log ===")
-    # print(except_text)
