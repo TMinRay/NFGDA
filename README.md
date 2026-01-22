@@ -7,7 +7,7 @@ This repository provides tools and scripts for the **Neuro-Fuzzy Gust Front Dete
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/TMinRay/NFGDA.git
+git clone https://github.com/firelab/NFGDA.git
 cd NFGDA
 ```
 
